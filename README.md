@@ -20,12 +20,19 @@ A comprehensive Model Context Protocol (MCP) server that enables AI assistants t
 npm install
 ```
 
-2. Build the project:
+2. Set up environment variables:
+```bash
+cp .env .env.local
+# Edit .env.local and add your Mistral API key:
+# MISTRAL_API_KEY=your_mistral_api_key_here
+```
+
+3. Build the project:
 ```bash
 npm run build
 ```
 
-3. Configure in Cursor AI by creating `.cursor/mcp.json` in your project:
+4. Configure in Cursor AI by creating `.cursor/mcp.json` in your project:
 ```json
 {
   "mcpServers": {

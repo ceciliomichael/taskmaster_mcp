@@ -6,10 +6,15 @@ import { Task, Memory, ProjectData, TaskStep, MemoryCluster, Document, SessionMe
 // Mistral API Configuration
 const MISTRAL_API_URL = "https://api.mistral.ai/v1/embeddings";
 const MISTRAL_CHAT_URL = "https://api.mistral.ai/v1/chat/completions";
-const MISTRAL_API_KEY = "MavRDmNaw6ODMGs6EMGMVp4kBWObUfYQ";
+const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY || "";
 const MISTRAL_MODEL = "mistral-embed";
 const MISTRAL_CHAT_MODEL = "mistral-large-2407"; // Using the most capable model for RAG
 const MAX_TOKENS = 8000;
+
+// Validate API key is available
+if (!MISTRAL_API_KEY) {
+  console.error("❌ MISTRAL_API_KEY environment variable is not set. Please add it to your .env file.");
+}
 
 /**
  * Generate high-quality embeddings using Mistral API with enhanced preprocessing
