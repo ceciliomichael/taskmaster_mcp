@@ -129,7 +129,7 @@ server.tool("get_docs", {
 // Search and load relevant session memories with RAG-powered intelligent answers
 server.tool("load_memory", {
   projectPath: z.string().describe("Absolute path to the project directory"),
-  query: z.string().describe("Ask load_memory about any topic, activity, decision, learning, or experience (e.g., 'meeting with client', 'cooking recipe', 'exercise routine', 'book I read', 'problem I solved')"),
+  query: z.string().describe("You can use load_memory to ask about relevant information from previous sessions when it pertains to your current task. Use this to understand what was accomplished in past sessions and what context you need to know to avoid repeating work or contradicting previous decisions."),
   limit: z.number().min(1).max(10).default(5).describe("Number of memories to return (1-10)")
 }, async ({ projectPath, query, limit = 5 }) => {
   try {
