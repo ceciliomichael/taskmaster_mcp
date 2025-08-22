@@ -40,9 +40,12 @@ npm run build
 }
 ```
 
-## Complete Tool Suite (11 Tools)
+## Complete Tool Suite (12 Tools)
 
-### 📋 Plan Management (NEW!)
+### 🤔 Thinking & Analysis
+- **`thinking`** - Externalize AI thought process and reasoning
+
+### 📋 Plan Management
 - **`check_plan`** - Check current plan status and progress
 - **`new_plan`** - Create new project plan from template
 - **`update_plan`** - Update phases, status, files, and reasoning
@@ -63,6 +66,11 @@ npm run build
 - **`save_memory`** - Save story-like narrative of session activities
 
 ## Tool Parameters
+
+### Thinking & Analysis Tools
+
+#### `thinking`
+- `thought` (string): The AI's thinking process, reasoning, or analysis
 
 ### Plan Management Tools
 
@@ -207,6 +215,13 @@ Technical reasoning and approach analysis goes here.
 ```
 
 ## Usage Examples
+
+### Externalizing AI Thought Process
+```javascript
+thinking({
+  thought: "I need to analyze the user's request for implementing authentication. Let me break this down: 1) They need secure login/logout, 2) Password hashing is required, 3) Session management is needed, 4) Consider JWT vs sessions. Based on the project structure, JWT would be better for this API-first approach."
+})
+```
 
 ### Creating a New Project Plan
 ```javascript

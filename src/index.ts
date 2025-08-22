@@ -473,6 +473,18 @@ server.tool("update_plan", {
   }
 });
 
+// Thinking tool for AI to externalize thought process
+server.tool("thinking", {
+  thought: z.string().describe("The AI's thinking process, reasoning, or analysis")
+}, async ({ thought }) => {
+  return {
+    content: [{ 
+      type: "text", 
+      text: `🤔 AI Thinking Process:\n\n${thought}` 
+    }]
+  };
+});
+
 // Start server
 async function main() {
   const transport = new StdioServerTransport();
