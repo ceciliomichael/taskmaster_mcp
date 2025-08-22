@@ -1,5 +1,26 @@
 [
   {
+    "id": "c611fb9d-bda9-4d05-89c1-b9822db7b349",
+    "content": "[IMPLEMENTATION] Fixed critical security vulnerability by removing hardcoded Mistral API key from source code. Moved API key to environment variable using process.env.MISTRAL_API_KEY, added .env file support with dotenv package, updated .gitignore to exclude .env files, and added API key validation. This prevents API keys from being exposed in git repositories and follows security best practices.",
+    "created": "2025-08-22T20:00:24.918Z",
+    "session_id": "d72f136f-fc4e-43f9-beb8-b82e6dbe4832",
+    "metadata": {
+      "category": "general",
+      "topics": [
+        "security",
+        "added",
+        "[implementation]",
+        "fixed",
+        "critical"
+      ],
+      "entities": [],
+      "keyActions": [
+        "fixed"
+      ],
+      "domain": "general"
+    }
+  },
+  {
     "id": "3edc3c10-61f6-436f-8d78-b580a2dcda86",
     "content": "Enhanced load_memory tool description to be AI assistant focused. Updated description to emphasize understanding past session context, avoiding repetition of work, and maintaining consistency with previous decisions. Committed as 350bd75 and pushed to GitHub. Much clearer guidance for AI assistants using the MCP tool.",
     "created": "2025-08-22T19:52:34.934Z",
