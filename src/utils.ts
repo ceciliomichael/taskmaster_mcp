@@ -3,6 +3,122 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { Task, Memory, ProjectData, TaskStep, MemoryCluster, Document, SessionMemory, PlanOverview, PlanPhase, PlanPhaseStatus, PlanCreationOptions, PlanUpdateOperation } from "./types.js";
 
+// Mistral API Configuration
+const MISTRAL_API_URL = "https://api.mistral.ai/v1/embeddings";
+const MISTRAL_CHAT_URL = "https://api.mistral.ai/v1/chat/completions";
+const MISTRAL_API_KEY = "MavRDmNaw6ODMGs6EMGMVp4kBWObUfYQ";
+const MISTRAL_MODEL = "mistral-embed";
+const MISTRAL_CHAT_MODEL = "mistral-large-2407"; // Using the most capable model for RAG
+const MAX_TOKENS = 8000;
+
+/**
+ * Generate high-quality embeddings using Mistral API with enhanced preprocessing
+ */
+export async function generateMistralEmbedding(text: string, metadata?: any): Promise<number[] | null> {
+  try {
+    // Extract metadata if not provided
+    let contentMetadata = metadata;
+    if (!contentMetadata) {
+      contentMetadata = await extractContentMetadata(text);
+    }
+    
+    // Preprocess content for better embedding quality
+    const processedText = preprocessContentForEmbedding(text, contentMetadata);
+    
+    // Handle long content with intelligent chunking
+    const chunks = chunkContentForEmbedding(processedText);
+    
+    if (chunks.length === 1) {
+      // Single chunk - generate embedding directly
+      return await generateSingleEmbedding(chunks[0]);
+    } else {
+      // Multiple chunks - generate embeddings and combine
+      const embeddings = await Promise.all(
+        chunks.map(chunk => generateSingleEmbedding(chunk))
+      );
+      
+      const validEmbeddings = embeddings.filter(emb => emb !== null) as number[][];
+      
+      if (validEmbeddings.length === 0) {
+        return null;
+      }
+      
+      // Average the embeddings (simple but effective combination)
+      const combinedEmbedding = new Array(validEmbeddings[0].length).fill(0);
+      for (const embedding of validEmbeddings) {
+        for (let i = 0; i < embedding.length; i++) {
+          combinedEmbedding[i] += embedding[i];
+        }
+      }
+      
+      // Normalize by number of embeddings
+      for (let i = 0; i < combinedEmbedding.length; i++) {
+        combinedEmbedding[i] /= validEmbeddings.length;
+      }
+      
+      return combinedEmbedding;
+    }
+  } catch (error) {
+    console.error('Error generating enhanced Mistral embedding:', error);
+    return null;
+  }
+}
+
+/**
+ * Generate embedding for a single chunk of text
+ */
+async function generateSingleEmbedding(text: string): Promise<number[] | null> {
+  try {
+    const response = await fetch(MISTRAL_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${MISTRAL_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: MISTRAL_MODEL,
+        input: [text]
+      })
+    });
+
+    if (!response.ok) {
+      console.error(`Mistral API error: ${response.status} ${response.statusText}`);
+      return null;
+    }
+
+    const data = await response.json();
+    
+    if (data.data && data.data[0] && data.data[0].embedding) {
+      return data.data[0].embedding;
+    }
+    
+    console.error('Unexpected Mistral API response format:', data);
+    return null;
+  } catch (error) {
+    console.error('Error generating single embedding:', error);
+    return null;
+  }
+}
+
+/**
+ * Calculate cosine similarity between two embedding vectors
+ */
+export function calculateEmbeddingSimilarity(embedding1: number[], embedding2: number[]): number {
+  if (embedding1.length !== embedding2.length || embedding1.length === 0) {
+    return 0;
+  }
+
+  const dotProduct = embedding1.reduce((sum, a, i) => sum + a * embedding2[i], 0);
+  const magnitude1 = Math.sqrt(embedding1.reduce((sum, a) => sum + a * a, 0));
+  const magnitude2 = Math.sqrt(embedding2.reduce((sum, b) => sum + b * b, 0));
+
+  if (magnitude1 === 0 || magnitude2 === 0) {
+    return 0;
+  }
+
+  return dotProduct / (magnitude1 * magnitude2);
+}
+
 /**
  * Advanced search for session memories based on query relevance
  */
@@ -1444,11 +1560,20 @@ export async function saveSessionMemory(projectPath: string, content: string): P
   // Create new memory with smart processing
   const processedContent = processMemoryContentSimple(content, memoryAnalysis);
   
+  // Extract enhanced metadata for better embeddings
+  const contentMetadata = await extractContentMetadata(processedContent);
+  
+  // Generate high-quality Mistral embedding with metadata
+  const embedding = await generateMistralEmbedding(processedContent, contentMetadata);
+  
   const newMemory: SessionMemory = {
     id: randomUUID(),
     content: processedContent,
     created: new Date().toISOString(),
-    session_id: sessionId
+    session_id: sessionId,
+    embedding: embedding || undefined,
+    embedding_model: embedding ? MISTRAL_MODEL : undefined,
+    metadata: contentMetadata
   };
   
   // Add the new memory with capacity management
@@ -1823,11 +1948,16 @@ async function consolidateMemories(
   // Create consolidated content that preserves both memories' insights
   const consolidatedContent = `${targetMemory.content}\n\n--- CONTINUED ---\n\n${newContent}`;
   
+  // Generate new embedding for the consolidated content
+  const newEmbedding = await generateMistralEmbedding(consolidatedContent);
+  
   // Update the existing memory
   const updatedMemory: SessionMemory = {
     ...targetMemory,
     content: consolidatedContent,
-    created: new Date().toISOString() // Update timestamp to show recent activity
+    created: new Date().toISOString(), // Update timestamp to show recent activity
+    embedding: newEmbedding || targetMemory.embedding, // Use new embedding or keep old one
+    embedding_model: newEmbedding ? MISTRAL_MODEL : targetMemory.embedding_model
   };
   
   // Load all memories, update the target, and save
@@ -1961,32 +2091,38 @@ export async function searchSessionMemories(
     }));
   }
   
+  // Generate embedding for the query
+  const queryEmbedding = await generateMistralEmbedding(query);
+  
   const queryLower = query.toLowerCase().trim();
   const queryWords = queryLower.split(/\s+/).filter(word => word.length > 1);
   
-  // Score all memories with multiple search strategies
+  // Score all memories with hybrid approach: embeddings + keyword matching
   const searchResults = memories.map(memory => {
     const contentLower = memory.content.toLowerCase();
-    let score = 0;
+    let keywordScore = 0;
+    let embeddingScore = 0;
     const matchedTerms: string[] = [];
+    
+    // === KEYWORD-BASED SCORING (Traditional approach) ===
     
     // Strategy 1: Exact phrase match (highest score)
     if (contentLower.includes(queryLower)) {
-      score += 100;
+      keywordScore += 100;
       matchedTerms.push(query);
     }
     
     // Strategy 2: All words present (high score)
     const allWordsPresent = queryWords.every(word => contentLower.includes(word));
     if (allWordsPresent && queryWords.length > 1) {
-      score += 80;
+      keywordScore += 80;
       matchedTerms.push(...queryWords);
     }
     
     // Strategy 3: Individual word matches (medium score)
     queryWords.forEach(word => {
       if (contentLower.includes(word)) {
-        score += Math.min(word.length * 10, 50); // Longer words = more specific
+        keywordScore += Math.min(word.length * 10, 50); // Longer words = more specific
         matchedTerms.push(word);
       }
     });
@@ -1998,28 +2134,53 @@ export async function searchSessionMemories(
         contentWords.forEach(contentWord => {
           if (contentWord.length >= 4 && contentWord !== queryWord) {
             if (contentWord.includes(queryWord) || queryWord.includes(contentWord)) {
-              score += 15;
+              keywordScore += 15;
             }
           }
         });
       }
     });
     
+    // === EMBEDDING-BASED SCORING (Semantic similarity) ===
+    
+    if (queryEmbedding && memory.embedding) {
+      const similarity = calculateEmbeddingSimilarity(queryEmbedding, memory.embedding);
+      embeddingScore = similarity * 200; // Scale to match keyword scores
+      
+      // If high semantic similarity but no keyword matches, add matched terms indicator
+      if (similarity > 0.7 && matchedTerms.length === 0) {
+        matchedTerms.push('semantic match');
+      }
+    }
+    
+    // === HYBRID SCORING ===
+    
+    // Combine keyword and embedding scores with weights
+    // Favor embeddings for semantic understanding, keywords for exact matches
+    const combinedScore = (keywordScore * 0.6) + (embeddingScore * 0.4);
+    
     // Strategy 5: Recency bonus (helps with ties)
     const hoursSince = (Date.now() - new Date(memory.created).getTime()) / (1000 * 60 * 60);
-    if (hoursSince < 24) score += 10;
-    if (hoursSince < 1) score += 5;
+    let recencyBonus = 0;
+    if (hoursSince < 24) recencyBonus += 10;
+    if (hoursSince < 1) recencyBonus += 5;
+    
+    const finalScore = combinedScore + recencyBonus;
     
     return {
       memory,
-      relevanceScore: score,
-      matchedTerms: Array.from(new Set(matchedTerms))
+      relevanceScore: finalScore,
+      matchedTerms: Array.from(new Set(matchedTerms)),
+      keywordScore,
+      embeddingScore,
+      semanticSimilarity: queryEmbedding && memory.embedding ? 
+        calculateEmbeddingSimilarity(queryEmbedding, memory.embedding) : 0
     };
   });
   
-  // Filter and sort results
+  // Filter and sort results - lower threshold to catch semantic matches
   const validResults = searchResults
-    .filter(result => result.relevanceScore > 10) // Very low threshold
+    .filter(result => result.relevanceScore > 5) // Lower threshold for semantic matches
     .sort((a, b) => b.relevanceScore - a.relevanceScore)
     .slice(0, limit);
   
@@ -2034,8 +2195,9 @@ export async function searchSessionMemories(
   // Normalize scores to 0-1 range for display
   const maxScore = validResults[0]?.relevanceScore || 1;
   return validResults.map(result => ({
-    ...result,
-    relevanceScore: result.relevanceScore / maxScore
+    memory: result.memory,
+    relevanceScore: result.relevanceScore / maxScore,
+    matchedTerms: result.matchedTerms
   }));
 }
   
@@ -2267,4 +2429,313 @@ function extractRelevantContent(content: string, query: string, relevanceScore: 
   }
   
   return result;
+}
+
+/**
+ * Generate intelligent answer using RAG (Retrieval-Augmented Generation)
+ */
+export async function generateRAGResponse(query: string, relevantMemories: SessionMemory[]): Promise<string | null> {
+  try {
+    if (relevantMemories.length === 0) {
+      return "I don't have any relevant memories to answer this question. Try saving some task summaries first using save_memory.";
+    }
+
+    // Prepare context from memories
+    const memoryContext = relevantMemories
+      .map((memory, index) => {
+        const timeAgo = getTimeAgo(memory.created);
+        return `Memory ${index + 1} (${timeAgo}):\n${memory.content}`;
+      })
+      .join('\n\n---\n\n');
+
+    // Create RAG prompt
+    const systemPrompt = `You are an intelligent memory assistant with access to the user's personal memory archive. Answer questions based ONLY on the provided memory context. Be specific, helpful, and reference relevant details from the memories.
+
+If the memories don't contain enough information to fully answer the question, acknowledge this and work with what's available.
+
+CRITICAL FORMATTING REQUIREMENTS:
+- Use ONLY plain text - absolutely NO markdown formatting
+- Do NOT use asterisks (*), underscores (_), or any special formatting characters
+- Do NOT use numbered lists with markdown (like 1. **item**)
+- Use simple numbered lists: 1. item, 2. item
+- Do NOT bold, italicize, or format any text
+- Write everything in plain text as if in a simple text editor
+
+Guidelines:
+- Be concise but comprehensive
+- Reference specific details, decisions, actions, or outcomes mentioned in memories
+- If multiple memories are relevant, synthesize information across them
+- Adapt your tone to match the domain (professional for work, casual for personal, etc.)
+- If no memories are truly relevant, say so clearly
+- Focus on what was actually done, learned, decided, or accomplished
+- Be domain-agnostic: work equally well for business, personal, creative, educational, or any other activities`;
+
+    const userPrompt = `Based on my memories below, please answer this question: "${query}"
+
+MEMORIES:
+${memoryContext}
+
+Please provide a helpful answer based on these memories.`;
+
+    const response = await fetch(MISTRAL_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${MISTRAL_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: MISTRAL_CHAT_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: 1000,
+        temperature: 0.3 // Lower temperature for more focused, factual responses
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Mistral Chat API error: ${response.status} ${response.statusText}`, errorText);
+      return null;
+    }
+
+    const data = await response.json();
+    
+    if (data.choices && data.choices[0] && data.choices[0].message) {
+      const rawResponse = data.choices[0].message.content;
+      // Strip any markdown formatting that might have slipped through
+      return stripMarkdownFormatting(rawResponse);
+    }
+    
+    console.error('Unexpected Mistral Chat API response format:', data);
+    return null;
+  } catch (error) {
+    console.error('Error generating RAG response:', error);
+    return null;
+  }
+}
+
+/**
+ * Strip markdown formatting from text to ensure plain text output
+ */
+export function stripMarkdownFormatting(text: string): string {
+  let cleaned = text;
+  
+  // Remove bold formatting (**text** and __text__)
+  cleaned = cleaned.replace(/\*\*(.*?)\*\*/g, '$1');
+  cleaned = cleaned.replace(/__(.*?)__/g, '$1');
+  
+  // Remove italic formatting (*text* and _text_)
+  cleaned = cleaned.replace(/\*(.*?)\*/g, '$1');
+  cleaned = cleaned.replace(/_(.*?)_/g, '$1');
+  
+  // Remove code formatting (`text`)
+  cleaned = cleaned.replace(/`(.*?)`/g, '$1');
+  
+  // Remove headers (# ## ###)
+  cleaned = cleaned.replace(/^#{1,6}\s+/gm, '');
+  
+  // Remove strikethrough (~~text~~)
+  cleaned = cleaned.replace(/~~(.*?)~~/g, '$1');
+  
+  // Remove links [text](url)
+  cleaned = cleaned.replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1');
+  
+  // Remove reference-style links [text][ref]
+  cleaned = cleaned.replace(/\[([^\]]+)\]\[[^\]]*\]/g, '$1');
+  
+  // Clean up any remaining asterisks or underscores that might be formatting
+  cleaned = cleaned.replace(/^\s*[\*\-\+]\s+/gm, ''); // Remove bullet points
+  
+  return cleaned.trim();
+}
+
+/**
+ * Extract key entities and topics from content using AI
+ */
+export async function extractContentMetadata(content: string): Promise<{
+  category: string;
+  topics: string[];
+  entities: string[];
+  keyActions: string[];
+  domain: string;
+}> {
+  try {
+    const response = await fetch(MISTRAL_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${MISTRAL_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: MISTRAL_CHAT_MODEL,
+        messages: [{
+          role: 'user',
+          content: `Analyze this content and extract structured metadata. Return ONLY a JSON object with these fields:
+
+{
+  "category": "one of: learning, decision, implementation, problem-solving, planning, meeting, research, creative, administrative, personal",
+  "topics": ["array", "of", "main", "topics"],
+  "entities": ["important", "people", "places", "organizations", "tools"],
+  "keyActions": ["main", "actions", "or", "verbs"],
+  "domain": "general field like: business, technology, education, health, creative, personal, etc."
+}
+
+Content to analyze:
+${content}`
+        }],
+        max_tokens: 300,
+        temperature: 0.1
+      })
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const result = JSON.parse(data.choices[0].message.content);
+      return result;
+    }
+  } catch (error) {
+    console.error('Error extracting metadata:', error);
+  }
+
+  // Fallback to basic analysis
+  return {
+    category: 'general',
+    topics: extractBasicTopics(content),
+    entities: [],
+    keyActions: extractBasicActions(content),
+    domain: 'general'
+  };
+}
+
+/**
+ * Basic topic extraction fallback
+ */
+function extractBasicTopics(content: string): string[] {
+  const words = content.toLowerCase().split(/\s+/);
+  const topicWords = words.filter(word => 
+    word.length > 4 && 
+    !['that', 'this', 'with', 'from', 'they', 'were', 'been', 'have', 'will', 'would', 'could', 'should'].includes(word)
+  );
+  
+  // Get most frequent words as topics
+  const frequency: Record<string, number> = {};
+  topicWords.forEach(word => frequency[word] = (frequency[word] || 0) + 1);
+  
+  return Object.entries(frequency)
+    .sort(([,a], [,b]) => b - a)
+    .slice(0, 5)
+    .map(([word]) => word);
+}
+
+/**
+ * Basic action extraction fallback
+ */
+function extractBasicActions(content: string): string[] {
+  const actionWords = [
+    'implemented', 'built', 'created', 'developed', 'designed', 'planned', 'analyzed', 'researched',
+    'learned', 'studied', 'discovered', 'found', 'solved', 'fixed', 'improved', 'optimized',
+    'decided', 'chose', 'selected', 'completed', 'finished', 'started', 'began', 'organized',
+    'managed', 'coordinated', 'collaborated', 'discussed', 'presented', 'wrote', 'documented'
+  ];
+  
+  const contentLower = content.toLowerCase();
+  return actionWords.filter(action => contentLower.includes(action)).slice(0, 3);
+}
+
+/**
+ * Enhanced content preprocessing for better embeddings
+ */
+export function preprocessContentForEmbedding(
+  content: string, 
+  metadata?: { category: string; topics: string[]; entities: string[]; keyActions: string[]; domain: string }
+): string {
+  // Clean and normalize the content
+  let processed = content.trim();
+  
+  // Remove excessive whitespace and normalize
+  processed = processed.replace(/\s+/g, ' ');
+  
+  // Add structured context if metadata is available
+  if (metadata) {
+    const contextParts = [];
+    
+    // Add domain context
+    if (metadata.domain !== 'general') {
+      contextParts.push(`Domain: ${metadata.domain}`);
+    }
+    
+    // Add category context
+    contextParts.push(`Activity: ${metadata.category}`);
+    
+    // Add key topics
+    if (metadata.topics.length > 0) {
+      contextParts.push(`Topics: ${metadata.topics.join(', ')}`);
+    }
+    
+    // Add key actions
+    if (metadata.keyActions.length > 0) {
+      contextParts.push(`Actions: ${metadata.keyActions.join(', ')}`);
+    }
+    
+    // Add entities if present
+    if (metadata.entities.length > 0) {
+      contextParts.push(`Entities: ${metadata.entities.join(', ')}`);
+    }
+    
+    // Combine context with content
+    const context = contextParts.join('. ');
+    processed = `${context}. Content: ${processed}`;
+  }
+  
+  return processed;
+}
+
+/**
+ * Intelligent content chunking for long text
+ */
+export function chunkContentForEmbedding(content: string, maxTokens: number = 6000): string[] {
+  // Rough token estimation: ~4 characters per token
+  const maxChars = maxTokens * 4;
+  
+  if (content.length <= maxChars) {
+    return [content];
+  }
+  
+  // Split by sentences first
+  const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 0);
+  const chunks: string[] = [];
+  let currentChunk = '';
+  
+  for (const sentence of sentences) {
+    const trimmedSentence = sentence.trim();
+    if ((currentChunk + ' ' + trimmedSentence).length <= maxChars) {
+      currentChunk += (currentChunk ? ' ' : '') + trimmedSentence + '.';
+    } else {
+      if (currentChunk) {
+        chunks.push(currentChunk);
+        currentChunk = trimmedSentence + '.';
+      } else {
+        // Single sentence is too long, split by words
+        const words = trimmedSentence.split(' ');
+        let wordChunk = '';
+        for (const word of words) {
+          if ((wordChunk + ' ' + word).length <= maxChars) {
+            wordChunk += (wordChunk ? ' ' : '') + word;
+          } else {
+            if (wordChunk) chunks.push(wordChunk + '.');
+            wordChunk = word;
+          }
+        }
+        if (wordChunk) currentChunk = wordChunk + '.';
+      }
+    }
+  }
+  
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+  
+  return chunks.length > 0 ? chunks : [content.substring(0, maxChars)];
 }
