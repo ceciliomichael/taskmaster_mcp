@@ -70,7 +70,9 @@ npm run build
 ### Thinking & Analysis Tools
 
 #### `thinking`
-- `thought` (string): The AI's thinking process, reasoning, or analysis
+- `thought` (string): You can use this tool to reason, to plan, to think and organize your mind and reasoning
+- `currentThought` (number, optional): Current thought number in the sequence
+- `maxThoughts` (number, optional): Total number of thoughts planned for this reasoning process
 
 ### Plan Management Tools
 
@@ -218,8 +220,22 @@ Technical reasoning and approach analysis goes here.
 
 ### Externalizing AI Thought Process
 ```javascript
+// Simple thinking without progression
 thinking({
-  thought: "I need to analyze the user's request for implementing authentication. Let me break this down: 1) They need secure login/logout, 2) Password hashing is required, 3) Session management is needed, 4) Consider JWT vs sessions. Based on the project structure, JWT would be better for this API-first approach."
+  thought: "I need to analyze the user's request for implementing authentication. This requires careful consideration of security, usability, and scalability factors."
+})
+
+// Multi-step thinking with progression tracking
+thinking({
+  thought: "Step 1: Analyzing security requirements. The system needs secure password storage, session management, and protection against common attacks like CSRF and XSS.",
+  currentThought: 1,
+  maxThoughts: 4
+})
+
+thinking({
+  thought: "Step 2: Evaluating authentication methods. Comparing JWT vs session-based auth. JWT offers stateless scalability but requires careful token management.",
+  currentThought: 2,
+  maxThoughts: 4
 })
 ```
 

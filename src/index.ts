@@ -475,12 +475,23 @@ server.tool("update_plan", {
 
 // Thinking tool for AI to externalize thought process
 server.tool("thinking", {
-  thought: z.string().describe("The AI's thinking process, reasoning, or analysis")
-}, async ({ thought }) => {
+  thought: z.string().describe("Use this tool to externalize your reasoning process, plan your approach, and organize your analytical thinking."),
+  currentThought: z.number().optional().describe("Current thought number in the sequence"),
+  maxThoughts: z.number().optional().describe("Total number of thoughts planned for this reasoning process")
+}, async ({ thought, currentThought, maxThoughts }) => {
+  let header = "🤔 AI Thinking Process:";
+  
+  // Add progression indicator if both current and max are provided
+  if (currentThought !== undefined && maxThoughts !== undefined) {
+    header = `🤔 AI Thinking Process (${currentThought}/${maxThoughts}):`;
+  } else if (currentThought !== undefined) {
+    header = `🤔 AI Thinking Process (Step ${currentThought}):`;
+  }
+  
   return {
     content: [{ 
       type: "text", 
-      text: `🤔 AI Thinking Process:\n\n${thought}` 
+      text: `${header}\n\n${thought}` 
     }]
   };
 });
