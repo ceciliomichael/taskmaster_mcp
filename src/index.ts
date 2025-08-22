@@ -128,7 +128,7 @@ server.tool("get_docs", {
 server.tool("load_memory", {
   projectPath: z.string().describe("Absolute path to the project directory"),
   query: z.string().describe("Search query to find relevant memories"),
-  limit: z.number().min(5).max(10).default(5).describe("Number of memories to return (5-10)")
+  limit: z.number().min(1).max(10).default(5).describe("Number of memories to return (1-10)")
 }, async ({ projectPath, query, limit = 5 }) => {
   try {
     const searchResults = await searchSessionMemories(projectPath, query, limit);
@@ -480,8 +480,8 @@ server.tool("update_plan", {
 });
 
 // Thinking tool for AI to externalize thought process
-server.tool("thinking", {
-  thought: z.string().describe("Use this tool to externalize your reasoning process, plan your approach, and organize your analytical thinking."),
+server.tool("reasoning", {
+  thought: z.string().describe("You will be given a task and you will need to reason about the task and follow STRICTLY the repo_specific_rules. You need to reason about the task very clearly and repeat the user's task in your own words and decomposed it into smaller steps. This is your directive and you need to follow it very strictly."),
   currentThought: z.number().optional().describe("Current thought number in the sequence"),
   maxThoughts: z.number().optional().describe("Total number of thoughts planned for this reasoning process")
 }, async ({ thought, currentThought, maxThoughts }) => {

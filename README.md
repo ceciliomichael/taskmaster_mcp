@@ -62,7 +62,7 @@ npm run build
 - **`delete_task`** - Remove tasks
 
 ### 🧠 Memory Management  
-- **`load_memory`** - Search and load relevant session memories
+- **`load_memory`** - Intelligent search with precision-focused relevant context retrieval
 - **`save_memory`** - Save story-like narrative of session activities
 
 ## Tool Parameters
@@ -137,8 +137,10 @@ npm run build
 
 #### `load_memory`
 - `projectPath` (string): Absolute project path
-- `query` (string): Search query to find relevant memories
-- `limit` (number): Number of memories to return (5-10, default: 5)
+- `query` (string): Search query with intelligent term extraction and semantic matching
+- `limit` (number): Number of memories to return (1-10, default: 5)
+
+*Enhanced with: Stop-word filtering, phrase extraction, semantic context analysis, content deduplication, and relevance-optimized content summarization for precise context without information overload.*
 
 #### `save_memory`
 - `projectPath` (string): Absolute project path
@@ -293,17 +295,27 @@ get_docs({
 
 ### Session Memory Management
 ```javascript
-// Search for relevant context
+// Enhanced precision search with intelligent context filtering
 load_memory({
   projectPath: "C:\\Users\\Administrator\\Desktop\\myproject",
-  query: "authentication implementation decisions",
+  query: "authentication JWT implementation security decisions",
   limit: 5
 })
+// Returns: Highly relevant memories with optimized content focusing on authentication and JWT
+// Filters out: Irrelevant context, duplicate information, excessive detail
 
-// Save session narrative
+// Simple contextual search
+load_memory({
+  projectPath: "C:\\Users\\Administrator\\Desktop\\myproject", 
+  query: "database schema changes",
+  limit: 3
+})
+// Returns: Key memories about database modifications with relevant context only
+
+// Save comprehensive session narrative
 save_memory({
   projectPath: "C:\\Users\\Administrator\\Desktop\\myproject",
-  content: "Implemented user authentication system with JWT tokens. Chose bcrypt for password hashing and added middleware for route protection. User requested OAuth integration for future phase."
+  content: "Implemented JWT authentication with refresh token rotation. Key decision: chose httpOnly cookies over localStorage for security. Added middleware for automatic token validation. User requested OAuth integration for future phase."
 })
 ```
 

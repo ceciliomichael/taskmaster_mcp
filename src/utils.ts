@@ -1352,6 +1352,13 @@ export async function ensureMemoryDirectory(projectPath: string): Promise<string
 }
 
 /**
+ * Ensure session directories exist (alias for memory directory)
+ */
+export async function ensureSessionDirectories(projectPath: string): Promise<string> {
+  return ensureMemoryDirectory(projectPath);
+}
+
+/**
  * Load session memories from storage
  */
 export async function loadSessionMemories(projectPath: string): Promise<SessionMemory[]> {
@@ -1410,25 +1417,504 @@ export async function generateSessionId(projectPath: string): Promise<string> {
 }
 
 /**
- * Save a new session memory
+ * Save a new session memory with human-like intelligence and robust error handling
  */
 export async function saveSessionMemory(projectPath: string, content: string): Promise<SessionMemory> {
-  const memories = await loadSessionMemories(projectPath);
+  // Input validation
+  if (!content || content.trim().length === 0) {
+    throw new Error('Memory content cannot be empty');
+  }
+  
+  // Ensure directories exist first
+  await ensureSessionDirectories(projectPath);
+  
+  const existingMemories = await loadSessionMemories(projectPath);
   const sessionId = await generateSessionId(projectPath);
+  
+  // Analyze the memory content like a human brain would
+  const memoryAnalysis = analyzeMemoryContent(content);
+  
+  // Simplified consolidation - only for very recent, very similar content
+  const shouldConsolidate = await shouldConsolidateMemory(content, existingMemories);
+  
+  if (shouldConsolidate.should) {
+    return await consolidateMemories(projectPath, shouldConsolidate.targetMemory!, content, memoryAnalysis);
+  }
+  
+  // Create new memory with smart processing
+  const processedContent = processMemoryContentSimple(content, memoryAnalysis);
   
   const newMemory: SessionMemory = {
     id: randomUUID(),
-    content,
+    content: processedContent,
     created: new Date().toISOString(),
     session_id: sessionId
   };
   
-  // Add new memory to the beginning of the array
-  const updatedMemories = [newMemory, ...memories];
+  // Add the new memory with capacity management
+  const updatedMemories = await manageMemoryCapacitySimple([newMemory, ...existingMemories]);
   
   await saveSessionMemories(projectPath, updatedMemories);
   
   return newMemory;
+}
+
+/**
+ * Simplified consolidation check that's more reliable
+ */
+async function shouldConsolidateMemory(
+  newContent: string,
+  existingMemories: SessionMemory[]
+): Promise<{ should: boolean; targetMemory?: SessionMemory }> {
+  
+  if (existingMemories.length === 0) {
+    return { should: false };
+  }
+  
+  // Only look at very recent memories (within 30 minutes)
+  const recentMemories = existingMemories.filter(memory => {
+    const minutesSince = (Date.now() - new Date(memory.created).getTime()) / (1000 * 60);
+    return minutesSince < 30;
+  });
+  
+  if (recentMemories.length === 0) {
+    return { should: false };
+  }
+  
+  // Check for high similarity with recent memory
+  const newContentWords = new Set(newContent.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+  
+  for (const memory of recentMemories) {
+    const existingWords = new Set(memory.content.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+    const commonWords = new Set([...newContentWords].filter(word => existingWords.has(word)));
+    const similarity = commonWords.size / Math.max(newContentWords.size, existingWords.size);
+    
+    // If very similar (>70%) and recent, consolidate
+    if (similarity > 0.7) {
+      return { should: true, targetMemory: memory };
+    }
+  }
+  
+  return { should: false };
+}
+
+/**
+ * Simplified content processing that's more reliable
+ */
+function processMemoryContentSimple(
+  content: string,
+  analysis: ReturnType<typeof analyzeMemoryContent>
+): string {
+  
+  // For high-importance memories, preserve full detail
+  if (analysis.importance > 0.8) {
+    return content;
+  }
+  
+  // For medium importance, add minimal context
+  if (analysis.importance > 0.6) {
+    const categoryTag = `[${analysis.category.toUpperCase()}]`;
+    if (!content.toLowerCase().includes(analysis.category)) {
+      return `${categoryTag} ${content}`;
+    }
+  }
+  
+  // For lower importance, just store as-is (simpler is better)
+  return content;
+}
+
+/**
+ * Simplified capacity management that's more reliable
+ */
+async function manageMemoryCapacitySimple(memories: SessionMemory[]): Promise<SessionMemory[]> {
+  
+  // Simple capacity limit
+  if (memories.length <= 40) {
+    return memories;
+  }
+  
+  // Keep most recent 35 memories (simple and reliable)
+  return memories
+    .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime())
+    .slice(0, 35);
+}
+
+/**
+ * Memory category type definition
+ */
+type MemoryCategory = 'discovery' | 'decision' | 'implementation' | 'problem_solving' | 'learning' | 'planning' | 'reflection';
+
+/**
+ * Analyze memory content like human cognitive processing
+ */
+function analyzeMemoryContent(content: string): {
+  category: MemoryCategory;
+  importance: number; // 0-1 scale
+  themes: string[];
+  keyInsights: string[];
+  emotionalWeight: number; // 0-1 scale for significance
+  complexity: 'simple' | 'moderate' | 'complex';
+  actionItems: string[];
+  connections: string[]; // Topics this might connect to
+} {
+  const lowerContent = content.toLowerCase();
+  
+  // Determine memory category (like human memory classification)
+  const categoryIndicators: Record<MemoryCategory, string[]> = {
+    discovery: ['discovered', 'found', 'realized', 'noticed', 'learned that', 'figured out', 'breakthrough'],
+    decision: ['decided', 'chose', 'selected', 'picked', 'went with', 'concluded', 'determined'],
+    implementation: ['implemented', 'built', 'created', 'developed', 'coded', 'added', 'integrated'],
+    problem_solving: ['fixed', 'solved', 'resolved', 'debugged', 'troubleshot', 'worked around', 'issue'],
+    learning: ['learned', 'understood', 'grasped', 'studied', 'researched', 'explored', 'investigated'],
+    planning: ['planning', 'will', 'going to', 'next steps', 'roadmap', 'strategy', 'approach'],
+    reflection: ['thinking', 'considering', 'reflecting', 'analyzing', 'reviewing', 'evaluating']
+  };
+  
+  // Find the category with the most indicators
+  function determineCategory(): MemoryCategory {
+    let maxMatches = 0;
+    let bestCategory: MemoryCategory = 'reflection';
+    
+    (Object.keys(categoryIndicators) as MemoryCategory[]).forEach(cat => {
+      const indicators = categoryIndicators[cat];
+      const matches = indicators.filter(indicator => lowerContent.includes(indicator)).length;
+      if (matches > maxMatches) {
+        maxMatches = matches;
+        bestCategory = cat;
+      }
+    });
+    
+    return bestCategory;
+  }
+  
+  const category = determineCategory();
+  
+  // Calculate importance (human-like significance assessment)
+  let importance = 0.5; // Base importance
+  
+  // Boost for key technical terms
+  const importantTerms = ['architecture', 'security', 'performance', 'scalability', 'user experience', 'critical', 'major', 'significant'];
+  importance += importantTerms.filter(term => lowerContent.includes(term)).length * 0.1;
+  
+  // Boost for problem-solving and decisions
+  if (category === 'decision' || category === 'problem_solving') importance += 0.2;
+  
+  // Boost for discoveries and breakthroughs
+  if (category === 'discovery') importance += 0.15;
+  
+  // Boost for detailed content (more effort = more important)
+  if (content.length > 200) importance += 0.1;
+  if (content.length > 500) importance += 0.1;
+  
+  importance = Math.min(importance, 1.0);
+  
+  // Extract themes (key topics discussed)
+  const themes = extractMemoryThemes(content);
+  
+  // Extract key insights (important takeaways)
+  const keyInsights = extractKeyInsights(content, category);
+  
+  // Calculate emotional weight (how significant this feels)
+  let emotionalWeight = importance;
+  const emotionalIndicators = ['excited', 'frustrated', 'breakthrough', 'challenge', 'success', 'failure', 'important', 'critical'];
+  emotionalWeight += emotionalIndicators.filter(indicator => lowerContent.includes(indicator)).length * 0.1;
+  emotionalWeight = Math.min(emotionalWeight, 1.0);
+  
+  // Determine complexity
+  const complexity = content.length > 300 ? 'complex' : content.length > 100 ? 'moderate' : 'simple';
+  
+  // Extract action items
+  const actionItems = extractActionItems(content);
+  
+  // Identify potential connections to other memories
+  const connections = identifyPotentialConnections(content);
+  
+  return {
+    category,
+    importance,
+    themes,
+    keyInsights,
+    emotionalWeight,
+    complexity,
+    actionItems,
+    connections
+  };
+}
+
+/**
+ * Extract key themes from memory content
+ */
+function extractMemoryThemes(content: string): string[] {
+  const technicalTerms = [
+    'authentication', 'database', 'api', 'frontend', 'backend', 'security', 'performance',
+    'testing', 'deployment', 'architecture', 'design', 'user interface', 'user experience',
+    'integration', 'configuration', 'optimization', 'debugging', 'documentation'
+  ];
+  
+  const foundThemes = technicalTerms.filter(term => 
+    content.toLowerCase().includes(term)
+  );
+  
+  // Add custom themes from content analysis
+  const words = content.toLowerCase().split(/\s+/).filter(w => w.length > 4);
+  const wordFreq = words.reduce((freq, word) => {
+    freq[word] = (freq[word] || 0) + 1;
+    return freq;
+  }, {} as Record<string, number>);
+  
+  // Add frequently mentioned words as themes
+  const frequentWords = Object.entries(wordFreq)
+    .filter(([word, count]) => count > 1 && !['that', 'this', 'with', 'from', 'they', 'were', 'been'].includes(word))
+    .sort(([,a], [,b]) => b - a)
+    .slice(0, 3)
+    .map(([word]) => word);
+  
+  return [...foundThemes, ...frequentWords].slice(0, 5);
+}
+
+/**
+ * Extract key insights based on memory category
+ */
+function extractKeyInsights(content: string, category: string): string[] {
+  const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 20);
+  const insights: string[] = [];
+  
+  // Category-specific insight extraction
+  switch (category) {
+    case 'decision':
+      insights.push(...sentences.filter(s => 
+        s.toLowerCase().includes('because') || 
+        s.toLowerCase().includes('reason') ||
+        s.toLowerCase().includes('decided')
+      ));
+      break;
+      
+    case 'discovery':
+      insights.push(...sentences.filter(s => 
+        s.toLowerCase().includes('found') || 
+        s.toLowerCase().includes('discovered') ||
+        s.toLowerCase().includes('realized')
+      ));
+      break;
+      
+    case 'problem_solving':
+      insights.push(...sentences.filter(s => 
+        s.toLowerCase().includes('solution') || 
+        s.toLowerCase().includes('fixed') ||
+        s.toLowerCase().includes('resolved')
+      ));
+      break;
+      
+    default:
+      // Extract sentences with key technical terms
+      insights.push(...sentences.filter(s => {
+        const lowerS = s.toLowerCase();
+        return ['implementation', 'approach', 'strategy', 'important', 'key'].some(term => lowerS.includes(term));
+      }));
+  }
+  
+  return insights.slice(0, 3).map(s => s.trim());
+}
+
+/**
+ * Extract action items from content
+ */
+function extractActionItems(content: string): string[] {
+  const actionIndicators = ['need to', 'should', 'will', 'todo', 'next', 'plan to', 'going to'];
+  const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 15);
+  
+  return sentences
+    .filter(sentence => 
+      actionIndicators.some(indicator => sentence.toLowerCase().includes(indicator))
+    )
+    .slice(0, 3)
+    .map(s => s.trim());
+}
+
+/**
+ * Identify potential connections to other memories
+ */
+function identifyPotentialConnections(content: string): string[] {
+  const connectionTerms = [
+    'similar to', 'like when', 'as before', 'previously', 'earlier', 'related to',
+    'connects to', 'builds on', 'follows from', 'same as', 'different from'
+  ];
+  
+  const connections: string[] = [];
+  const lowerContent = content.toLowerCase();
+  
+  // Look for explicit connection references
+  connectionTerms.forEach(term => {
+    if (lowerContent.includes(term)) {
+      connections.push(term);
+    }
+  });
+  
+  // Extract technical topics that might connect to other memories
+  const topics = extractMemoryThemes(content);
+  connections.push(...topics);
+  
+  return Array.from(new Set(connections)).slice(0, 5);
+}
+
+/**
+ * Consider if this memory should be consolidated with existing ones
+ */
+async function considerMemoryConsolidation(
+  newContent: string,
+  existingMemories: SessionMemory[],
+  analysis: ReturnType<typeof analyzeMemoryContent>
+): Promise<{ shouldConsolidate: boolean; targetMemory?: SessionMemory }> {
+  
+  // Don't consolidate if no existing memories
+  if (existingMemories.length === 0) {
+    return { shouldConsolidate: false };
+  }
+  
+  // Look for recent memories (within 2 hours) with similar themes
+  const recentMemories = existingMemories.filter(memory => {
+    const hoursSince = (Date.now() - new Date(memory.created).getTime()) / (1000 * 60 * 60);
+    return hoursSince < 2;
+  });
+  
+  for (const memory of recentMemories) {
+    const similarity = calculateMemoryThemeSimilarity(newContent, memory.content, analysis.themes);
+    
+    // If very similar content within same session, consider consolidation
+    if (similarity > 0.6) {
+      return { shouldConsolidate: true, targetMemory: memory };
+    }
+  }
+  
+  return { shouldConsolidate: false };
+}
+
+/**
+ * Calculate thematic similarity between memories
+ */
+function calculateMemoryThemeSimilarity(content1: string, content2: string, themes: string[]): number {
+  const content2Lower = content2.toLowerCase();
+  const matchingThemes = themes.filter(theme => content2Lower.includes(theme)).length;
+  
+  if (themes.length === 0) return 0;
+  
+  const themeScore = matchingThemes / themes.length;
+  
+  // Also check word overlap
+  const words1 = new Set(content1.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+  const words2 = new Set(content2.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+  const wordOverlap = new Set([...words1].filter(w => words2.has(w)));
+  
+  const wordScore = wordOverlap.size / Math.max(words1.size, words2.size);
+  
+  return (themeScore * 0.7) + (wordScore * 0.3);
+}
+
+/**
+ * Consolidate similar memories intelligently
+ */
+async function consolidateMemories(
+  projectPath: string,
+  targetMemory: SessionMemory,
+  newContent: string,
+  analysis: ReturnType<typeof analyzeMemoryContent>
+): Promise<SessionMemory> {
+  
+  // Create consolidated content that preserves both memories' insights
+  const consolidatedContent = `${targetMemory.content}\n\n--- CONTINUED ---\n\n${newContent}`;
+  
+  // Update the existing memory
+  const updatedMemory: SessionMemory = {
+    ...targetMemory,
+    content: consolidatedContent,
+    created: new Date().toISOString() // Update timestamp to show recent activity
+  };
+  
+  // Load all memories, update the target, and save
+  const allMemories = await loadSessionMemories(projectPath);
+  const updatedMemories = allMemories.map(memory => 
+    memory.id === targetMemory.id ? updatedMemory : memory
+  );
+  
+  await saveSessionMemories(projectPath, updatedMemories);
+  
+  return updatedMemory;
+}
+
+/**
+ * Process memory content for optimal storage (like human memory consolidation)
+ */
+function processMemoryContent(
+  content: string,
+  analysis: ReturnType<typeof analyzeMemoryContent>
+): string {
+  
+  // For high-importance memories, preserve full detail
+  if (analysis.importance > 0.8) {
+    return content;
+  }
+  
+  // For medium importance, add context tags
+  if (analysis.importance > 0.5) {
+    let processedContent = content;
+    
+    // Add category context if not obvious
+    if (!content.toLowerCase().includes(analysis.category)) {
+      processedContent = `[${analysis.category.toUpperCase()}] ${processedContent}`;
+    }
+    
+    // Add key themes as context
+    if (analysis.themes.length > 0) {
+      processedContent += `\n\n--- Key topics: ${analysis.themes.join(', ')} ---`;
+    }
+    
+    return processedContent;
+  }
+  
+  // For lower importance, create a summary while preserving key insights
+  if (analysis.keyInsights.length > 0) {
+    return `[${analysis.category.toUpperCase()}] ${analysis.keyInsights.join('. ')}\n\nFull context: ${content.substring(0, 200)}${content.length > 200 ? '...' : ''}`;
+  }
+  
+  return content;
+}
+
+/**
+ * Manage memory capacity like human memory (forget less important, keep important)
+ */
+async function manageMemoryCapacity(
+  memories: SessionMemory[],
+  newMemoryAnalysis: ReturnType<typeof analyzeMemoryContent>
+): Promise<SessionMemory[]> {
+  
+  // If under capacity, keep all memories
+  if (memories.length <= 30) {
+    return memories;
+  }
+  
+  // Analyze all memories and rank by importance
+  const rankedMemories = memories.map(memory => {
+    const analysis = analyzeMemoryContent(memory.content);
+    const daysSince = (Date.now() - new Date(memory.created).getTime()) / (1000 * 60 * 60 * 24);
+    
+    // Importance score considering recency
+    const timeDecay = Math.max(0.3, 1 - (daysSince / 30)); // Decay over 30 days, minimum 30%
+    const finalScore = analysis.importance * 0.7 + timeDecay * 0.3;
+    
+    return { memory, score: finalScore, analysis };
+  });
+  
+  // Sort by importance and keep top memories
+  const sortedMemories = rankedMemories.sort((a, b) => b.score - a.score);
+  
+  // Always keep the most recent 10 memories regardless of score
+  const recentMemories = memories.slice(0, 10);
+  const importantMemories = sortedMemories.slice(0, 25).map(item => item.memory);
+  
+  // Combine and deduplicate
+  const finalMemories = Array.from(new Set([...recentMemories, ...importantMemories]));
+  
+  return finalMemories.slice(0, 30);
 }
 
 /**
@@ -1466,7 +1952,7 @@ export async function searchSessionMemories(
     return [];
   }
   
-  // If no query provided, return most recent memories
+  // Handle empty query - just return recent memories
   if (!query || query.trim() === '') {
     return memories.slice(0, limit).map(memory => ({
       memory,
@@ -1475,78 +1961,310 @@ export async function searchSessionMemories(
     }));
   }
   
-  const queryTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 1);
-  const searchResults: SessionMemorySearchResult[] = [];
+  const queryLower = query.toLowerCase().trim();
+  const queryWords = queryLower.split(/\s+/).filter(word => word.length > 1);
   
-  // Calculate TF-IDF vectors for all memory contents
-  const memoryContents = memories.map(m => m.content);
-  const allDocuments = [...memoryContents, query];
-  const tfidfVectors = calculateTFIDF(allDocuments);
-  const queryVector = tfidfVectors[tfidfVectors.length - 1]; // Last vector is the query
-  
-  memories.forEach((memory, index) => {
-    const content = memory.content.toLowerCase();
+  // Score all memories with multiple search strategies
+  const searchResults = memories.map(memory => {
+    const contentLower = memory.content.toLowerCase();
     let score = 0;
     const matchedTerms: string[] = [];
     
-    // 1. TF-IDF Similarity (40% weight)
-    const memoryVector = tfidfVectors[index];
-    const tfidfSimilarity = cosineSimilarity(queryVector, memoryVector);
-    score += tfidfSimilarity * 0.4;
-    
-    // 2. Exact phrase matching (30% weight)
-    if (content.includes(query.toLowerCase())) {
-      score += 0.3;
+    // Strategy 1: Exact phrase match (highest score)
+    if (contentLower.includes(queryLower)) {
+      score += 100;
       matchedTerms.push(query);
     }
     
-    // 3. Individual term matching (20% weight)
-    let termMatchScore = 0;
-    queryTerms.forEach(term => {
-      if (content.includes(term)) {
-        termMatchScore += 1;
-        matchedTerms.push(term);
+    // Strategy 2: All words present (high score)
+    const allWordsPresent = queryWords.every(word => contentLower.includes(word));
+    if (allWordsPresent && queryWords.length > 1) {
+      score += 80;
+      matchedTerms.push(...queryWords);
+    }
+    
+    // Strategy 3: Individual word matches (medium score)
+    queryWords.forEach(word => {
+      if (contentLower.includes(word)) {
+        score += Math.min(word.length * 10, 50); // Longer words = more specific
+        matchedTerms.push(word);
       }
-      
-      // Fuzzy matching for technical terms
-      const words = content.split(/\s+/);
-      words.forEach(word => {
-        if (word.length > 3 && term.length > 3) {
-          const similarity = calculateStringSimilarity(word, term);
-          if (similarity > 0.8) {
-            termMatchScore += similarity * 0.5;
-            if (!matchedTerms.includes(term)) {
-              matchedTerms.push(term);
-            }
-          }
-        }
-      });
     });
     
-    score += (termMatchScore / queryTerms.length) * 0.2;
+    // Strategy 4: Partial word matches (lower score)
+    queryWords.forEach(queryWord => {
+      if (queryWord.length >= 4) {
+        const contentWords = contentLower.split(/\s+/);
+        contentWords.forEach(contentWord => {
+          if (contentWord.length >= 4 && contentWord !== queryWord) {
+            if (contentWord.includes(queryWord) || queryWord.includes(contentWord)) {
+              score += 15;
+            }
+          }
+        });
+      }
+    });
     
-    // 4. Recency bonus (5% weight)
-    const daysSince = (Date.now() - new Date(memory.created).getTime()) / (1000 * 60 * 60 * 24);
-    const recencyBonus = Math.max(0, 1 - daysSince / 30); // Boost for memories less than 30 days old
-    score += recencyBonus * 0.05;
+    // Strategy 5: Recency bonus (helps with ties)
+    const hoursSince = (Date.now() - new Date(memory.created).getTime()) / (1000 * 60 * 60);
+    if (hoursSince < 24) score += 10;
+    if (hoursSince < 1) score += 5;
     
-    // 5. Content quality bonus (5% weight)
-    const contentLength = memory.content.length;
-    const qualityBonus = Math.min(1, contentLength / 200); // Boost for detailed memories
-    score += qualityBonus * 0.05;
+    return {
+      memory,
+      relevanceScore: score,
+      matchedTerms: Array.from(new Set(matchedTerms))
+    };
+  });
+  
+  // Filter and sort results
+  const validResults = searchResults
+    .filter(result => result.relevanceScore > 10) // Very low threshold
+    .sort((a, b) => b.relevanceScore - a.relevanceScore)
+    .slice(0, limit);
+  
+  // If no good matches, return best attempts anyway
+  if (validResults.length === 0 && searchResults.length > 0) {
+    return searchResults
+      .sort((a, b) => b.relevanceScore - a.relevanceScore)
+      .slice(0, Math.min(2, memories.length))
+      .map(result => ({ ...result, relevanceScore: Math.max(result.relevanceScore / 100, 0.1) }));
+  }
+  
+  // Normalize scores to 0-1 range for display
+  const maxScore = validResults[0]?.relevanceScore || 1;
+  return validResults.map(result => ({
+    ...result,
+    relevanceScore: result.relevanceScore / maxScore
+  }));
+}
+  
+/**
+ * Analyze what the user is actually looking for
+ */
+function analyzeQueryIntent(query: string): {
+  type: 'recent' | 'specific' | 'conceptual' | 'decision' | 'technical';
+  keywords: string[];
+  timeContext: boolean;
+  complexity: 'simple' | 'complex';
+} {
+  const lowerQuery = query.toLowerCase();
+  
+  // Intent indicators
+  const recentIndicators = ['recent', 'last', 'latest', 'current', 'new', 'today', 'yesterday'];
+  const decisionIndicators = ['why', 'decided', 'chose', 'picked', 'selected', 'reason'];
+  const conceptualIndicators = ['how', 'what', 'concept', 'approach', 'strategy', 'pattern'];
+  const technicalIndicators = ['implementation', 'code', 'function', 'api', 'database', 'server'];
+  
+  let type: 'recent' | 'specific' | 'conceptual' | 'decision' | 'technical' = 'specific';
+  
+  if (recentIndicators.some(indicator => lowerQuery.includes(indicator))) {
+    type = 'recent';
+  } else if (decisionIndicators.some(indicator => lowerQuery.includes(indicator))) {
+    type = 'decision';
+  } else if (conceptualIndicators.some(indicator => lowerQuery.includes(indicator))) {
+    type = 'conceptual';
+  } else if (technicalIndicators.some(indicator => lowerQuery.includes(indicator))) {
+    type = 'technical';
+  }
+  
+  // Extract meaningful keywords (no stop words)
+  const stopWords = new Set(['a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'is', 'in', 'into', 'of', 'on', 'or', 'that', 'the', 'to', 'was', 'were', 'will', 'with']);
+  const keywords = query.toLowerCase()
+    .split(/\s+/)
+    .filter(word => word.length > 2 && !stopWords.has(word))
+    .slice(0, 8); // Limit to most important terms
+  
+  return {
+    type,
+    keywords,
+    timeContext: recentIndicators.some(indicator => lowerQuery.includes(indicator)),
+    complexity: keywords.length > 3 ? 'complex' : 'simple'
+  };
+}
+
+/**
+ * Find memories that actually matter for the query
+ */
+function findRelevantMemories(
+  memories: SessionMemory[], 
+  query: string, 
+  analysis: ReturnType<typeof analyzeQueryIntent>
+): SessionMemorySearchResult[] {
+  const results: SessionMemorySearchResult[] = [];
+  
+  memories.forEach(memory => {
+    const relevanceData = calculatePracticalRelevance(memory, query, analysis);
     
-    // Only include memories with meaningful relevance
-    if (score > 0.1) {
-      searchResults.push({
+    // Only include if genuinely relevant (no fake scores)
+    if (relevanceData.score > 0.3) {
+      results.push({
         memory,
-        relevanceScore: score,
-        matchedTerms: Array.from(new Set(matchedTerms))
+        relevanceScore: relevanceData.score,
+        matchedTerms: relevanceData.matchedTerms
       });
     }
   });
   
-  // Sort by relevance and return top results
-  return searchResults
-    .sort((a, b) => b.relevanceScore - a.relevanceScore)
-    .slice(0, limit);
+  // Sort by relevance and remove near-duplicates
+  const sorted = results.sort((a, b) => b.relevanceScore - a.relevanceScore);
+  return removeSimilarResults(sorted);
+}
+
+/**
+ * Calculate relevance that actually reflects usefulness
+ */
+function calculatePracticalRelevance(
+  memory: SessionMemory,
+  query: string,
+  analysis: ReturnType<typeof analyzeQueryIntent>
+): { score: number; matchedTerms: string[] } {
+    const content = memory.content.toLowerCase();
+    const matchedTerms: string[] = [];
+  let score = 0;
+  
+  // 1. Exact phrase matching (most important)
+    if (content.includes(query.toLowerCase())) {
+    score += 0.6;
+      matchedTerms.push(query);
+    }
+    
+  // 2. Keyword matching with context awareness
+  let keywordScore = 0;
+  analysis.keywords.forEach(keyword => {
+    const keywordRegex = new RegExp(`\\b${keyword}\\b`, 'gi');
+    const matches = content.match(keywordRegex);
+    
+    if (matches) {
+      matchedTerms.push(keyword);
+      
+      // Score based on keyword importance and frequency
+      const baseScore = Math.min(keyword.length / 8, 1); // Longer = more specific
+      const frequencyBonus = Math.min(matches.length * 0.1, 0.2);
+      keywordScore += baseScore + frequencyBonus;
+    }
+  });
+  
+  score += (keywordScore / analysis.keywords.length) * 0.3;
+  
+  // 3. Intent-based scoring adjustments
+  switch (analysis.type) {
+    case 'recent':
+    const daysSince = (Date.now() - new Date(memory.created).getTime()) / (1000 * 60 * 60 * 24);
+      score += Math.max(0, (7 - daysSince) / 7) * 0.1; // Boost recent memories
+      break;
+    
+    case 'decision':
+      if (content.includes('decided') || content.includes('chose') || content.includes('because')) {
+        score += 0.1;
+      }
+      break;
+    
+    case 'technical':
+      const techTerms = ['implementation', 'function', 'api', 'database', 'code', 'server'];
+      if (techTerms.some(term => content.includes(term))) {
+        score += 0.1;
+      }
+      break;
+  }
+  
+  return {
+    score: Math.min(score, 1.0),
+        matchedTerms: Array.from(new Set(matchedTerms))
+  };
+}
+
+/**
+ * Remove memories that are too similar to avoid redundancy
+ */
+function removeSimilarResults(results: SessionMemorySearchResult[]): SessionMemorySearchResult[] {
+  if (results.length <= 1) return results;
+  
+  const filtered: SessionMemorySearchResult[] = [results[0]];
+  
+  for (let i = 1; i < results.length; i++) {
+    const current = results[i];
+    let tooSimilar = false;
+    
+    for (const existing of filtered) {
+      // Check content similarity
+      const similarity = calculateSimpleContentSimilarity(current.memory.content, existing.memory.content);
+      
+      // If very similar content (>80%) from same session, skip
+      if (similarity > 0.8 && current.memory.session_id === existing.memory.session_id) {
+        tooSimilar = true;
+        break;
+      }
+    }
+    
+    if (!tooSimilar) {
+      filtered.push(current);
+    }
+  }
+  
+  return filtered;
+}
+
+/**
+ * Simple but effective content similarity check
+ */
+function calculateSimpleContentSimilarity(content1: string, content2: string): number {
+  const words1 = content1.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+  const words2 = content2.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+  
+  if (words1.length === 0 || words2.length === 0) return 0;
+  
+  const set1 = new Set(words1);
+  const set2 = new Set(words2);
+  const intersection = new Set([...set1].filter(word => set2.has(word)));
+  
+  return intersection.size / Math.max(set1.size, set2.size);
+}
+
+/**
+ * Extract the most relevant parts of memory content
+ */
+function extractRelevantContent(content: string, query: string, relevanceScore: number): string {
+  // For highly relevant, short content - keep it all
+  if (relevanceScore > 0.7 && content.length <= 300) {
+    return content;
+  }
+  
+  // For longer content, find the most relevant parts
+  const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 20);
+  
+  if (sentences.length <= 2) {
+    return content;
+  }
+  
+  // Score sentences by query relevance
+  const queryTerms = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  const scoredSentences = sentences.map(sentence => {
+    const lowerSentence = sentence.toLowerCase();
+    let sentenceScore = 0;
+    
+    queryTerms.forEach(term => {
+      if (lowerSentence.includes(term)) {
+        sentenceScore += term.length;
+      }
+    });
+    
+    return { sentence: sentence.trim(), score: sentenceScore };
+  });
+  
+  // Take the best sentences (at least 2, up to 70% of total)
+  const bestSentences = scoredSentences
+    .sort((a, b) => b.score - a.score)
+    .slice(0, Math.max(2, Math.ceil(sentences.length * 0.7)))
+    .sort((a, b) => sentences.indexOf(a.sentence) - sentences.indexOf(b.sentence)) // Restore order
+    .map(item => item.sentence);
+  
+  const result = bestSentences.join('. ');
+  
+  // Add continuation indicator if we cut content
+  if (result.length < content.length * 0.9) {
+    return result + '...';
+  }
+  
+  return result;
 }
