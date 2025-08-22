@@ -1010,14 +1010,21 @@ export async function parsePlanContent(projectPath: string): Promise<PlanOvervie
 /**
  * Create a new plan.md file from template in active plan directory
  */
-export async function createNewPlan(projectPath: string, options: PlanCreationOptions): Promise<void> {
+export async function createNewPlan(projectPath: string, options: PlanCreationOptions): Promise<{ archived?: string }> {
   const { activePlanDir } = await ensurePlanDirectories(projectPath);
   const planPath = path.join(activePlanDir, "plan.md");
   
-  // Check if plan.md already exists
+  let archivedPlan: string | undefined;
+  
+  // Check if plan.md already exists and auto-archive it
   const { exists } = await checkPlanExists(projectPath);
   if (exists) {
-    throw new Error("plan.md already exists. Use update_plan to modify it or archive_plan to start fresh.");
+    const archiveResult = await movePlanToArchive(projectPath);
+    if (archiveResult.success) {
+      archivedPlan = archiveResult.newFilename;
+    } else {
+      throw new Error(`Failed to archive existing plan: ${archiveResult.error}`);
+    }
   }
   
   const { projectName, projectDescription, initialPhases } = options;
@@ -1139,6 +1146,7 @@ The reasoning section should be updated throughout the project lifecycle as new 
 `;
 
   await fs.writeFile(planPath, planContent, 'utf-8');
+  return { archived: archivedPlan };
 }
 
 /**

@@ -70,7 +70,7 @@ npm run build
 ### Thinking & Analysis Tools
 
 #### `thinking`
-- `thought` (string): You can use this tool to reason, to plan, to think and organize your mind and reasoning
+- `thought` (string): Use this tool to externalize your reasoning process, plan your approach, and organize your analytical thinking
 - `currentThought` (number, optional): Current thought number in the sequence
 - `maxThoughts` (number, optional): Total number of thoughts planned for this reasoning process
 
@@ -84,6 +84,8 @@ npm run build
 - `projectName` (string): Name of the project
 - `projectDescription` (string, optional): Brief description of project goals
 - `initialPhases` (array, optional): Initial phases with name, description, and files
+
+*Note: If an active plan already exists, it will be automatically archived before creating the new plan.*
 
 #### `update_plan`
 - `projectPath` (string): Absolute project path

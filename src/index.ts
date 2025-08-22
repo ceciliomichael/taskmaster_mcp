@@ -315,13 +315,19 @@ server.tool("new_plan", {
   })).optional().describe("Initial phases to create (optional)")
 }, async ({ projectPath, projectName, projectDescription, initialPhases }) => {
   try {
-    await createNewPlan(projectPath, {
+    const result = await createNewPlan(projectPath, {
       projectName,
       projectDescription,
       initialPhases
     });
     
     let content = `✅ NEW PLAN CREATED SUCCESSFULLY!\n\n`;
+    
+    // Show auto-archive message if a plan was archived
+    if (result.archived) {
+      content += `📦 Auto-archived existing plan: ${result.archived}\n`;
+    }
+    
     content += `📄 Created: .taskmaster/plan/active_plan/plan.md\n`;
     content += `📋 Project: ${projectName}\n`;
     
