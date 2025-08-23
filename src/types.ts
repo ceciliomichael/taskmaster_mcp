@@ -28,7 +28,7 @@ export interface SessionMemory {
   content: string; // Story-like narrative of what happened
   created: string; // ISO timestamp
   session_id: string; // Groups memories by session
-  embedding?: number[]; // Mistral embedding vector
+  embedding?: number[]; // AI embedding vector
   embedding_model?: string; // Track which model generated the embedding
   metadata?: {
     category: string;

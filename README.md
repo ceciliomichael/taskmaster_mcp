@@ -22,9 +22,13 @@ npm install
 
 2. Set up environment variables:
 ```bash
-cp .env .env.local
-# Edit .env.local and add your Mistral API key:
-# MISTRAL_API_KEY=your_mistral_api_key_here
+cp .env.example .env
+# Edit .env and configure your AI API settings:
+# AI_API_KEY=your_api_key_here
+# AI_EMBEDDINGS_URL=https://api.openai.com/v1/embeddings
+# AI_CHAT_URL=https://api.openai.com/v1/chat/completions
+# AI_EMBEDDING_MODEL=text-embedding-3-small
+# AI_CHAT_MODEL=gpt-4
 ```
 
 3. Build the project:

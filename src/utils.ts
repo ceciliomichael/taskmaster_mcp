@@ -3,17 +3,17 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { Task, Memory, ProjectData, TaskStep, MemoryCluster, Document, SessionMemory, PlanOverview, PlanPhase, PlanPhaseStatus, PlanCreationOptions, PlanUpdateOperation } from "./types.js";
 
-// Mistral API Configuration
-const MISTRAL_API_URL = "https://api.mistral.ai/v1/embeddings";
-const MISTRAL_CHAT_URL = "https://api.mistral.ai/v1/chat/completions";
-const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY || "";
-const MISTRAL_MODEL = "mistral-embed";
-const MISTRAL_CHAT_MODEL = "mistral-large-latest"; // Using the most capable model for RAG
+// OpenAI-Compatible API Configuration
+const AI_EMBEDDINGS_URL = process.env.AI_EMBEDDINGS_URL || "http://localhost:4000/v1/embeddings";
+const AI_CHAT_URL = process.env.AI_CHAT_URL || "http://localhost:4000/v1/chat/completions";
+const AI_API_KEY = process.env.AI_API_KEY || "";
+const AI_EMBEDDING_MODEL = process.env.AI_EMBEDDING_MODEL || "mistral-embed";
+const AI_CHAT_MODEL = process.env.AI_CHAT_MODEL || "mistral-medium-latest";
 const MAX_TOKENS = 8000;
 
 // Validate API key is available
-if (!MISTRAL_API_KEY) {
-  console.error("❌ MISTRAL_API_KEY environment variable is not set. Please add it to your .env file.");
+if (!AI_API_KEY) {
+  console.error("❌ AI_API_KEY environment variable is not set. Please add it to your .env file.");
 }
 
 /**
@@ -24,9 +24,9 @@ export async function delay(ms: number): Promise<void> {
 }
 
 /**
- * Generate high-quality embeddings using Mistral API with enhanced preprocessing
+ * Generate high-quality embeddings using OpenAI-compatible API with enhanced preprocessing
  */
-export async function generateMistralEmbedding(text: string, metadata?: any): Promise<number[] | null> {
+export async function generateAIEmbedding(text: string, metadata?: any): Promise<number[] | null> {
   try {
     // Extract metadata if not provided
     let contentMetadata = metadata;
@@ -71,7 +71,7 @@ export async function generateMistralEmbedding(text: string, metadata?: any): Pr
       return combinedEmbedding;
     }
   } catch (error) {
-    console.error('Error generating enhanced Mistral embedding:', error);
+    console.error('Error generating enhanced AI embedding:', error);
     return null;
   }
 }
@@ -81,20 +81,20 @@ export async function generateMistralEmbedding(text: string, metadata?: any): Pr
  */
 async function generateSingleEmbedding(text: string): Promise<number[] | null> {
   try {
-    const response = await fetch(MISTRAL_API_URL, {
+    const response = await fetch(AI_EMBEDDINGS_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${MISTRAL_API_KEY}`
+        'Authorization': `Bearer ${AI_API_KEY}`
       },
       body: JSON.stringify({
-        model: MISTRAL_MODEL,
-        input: [text]
+        model: AI_EMBEDDING_MODEL,
+        input: text
       })
     });
 
     if (!response.ok) {
-      console.error(`Mistral API error: ${response.status} ${response.statusText}`);
+      console.error(`AI Embeddings API error: ${response.status} ${response.statusText}`);
       return null;
     }
 
@@ -104,7 +104,7 @@ async function generateSingleEmbedding(text: string): Promise<number[] | null> {
       return data.data[0].embedding;
     }
     
-    console.error('Unexpected Mistral API response format:', data);
+    console.error('Unexpected AI Embeddings API response format:', data);
     return null;
   } catch (error) {
     console.error('Error generating single embedding:', error);
@@ -1577,7 +1577,7 @@ export async function saveSessionMemory(projectPath: string, content: string): P
   const contentMetadata = await extractContentMetadata(processedContent);
   
   // Generate high-quality Mistral embedding with metadata
-  const embedding = await generateMistralEmbedding(processedContent, contentMetadata);
+  const embedding = await generateAIEmbedding(processedContent, contentMetadata);
   
   const newMemory: SessionMemory = {
     id: randomUUID(),
@@ -1585,7 +1585,7 @@ export async function saveSessionMemory(projectPath: string, content: string): P
     created: new Date().toISOString(),
     session_id: sessionId,
     embedding: embedding || undefined,
-    embedding_model: embedding ? MISTRAL_MODEL : undefined,
+    embedding_model: embedding ? AI_EMBEDDING_MODEL : undefined,
     metadata: contentMetadata
   };
   
@@ -1962,7 +1962,7 @@ async function consolidateMemories(
   const consolidatedContent = `${targetMemory.content}\n\n--- CONTINUED ---\n\n${newContent}`;
   
   // Generate new embedding for the consolidated content
-  const newEmbedding = await generateMistralEmbedding(consolidatedContent);
+  const newEmbedding = await generateAIEmbedding(consolidatedContent);
   
   // Update the existing memory
   const updatedMemory: SessionMemory = {
@@ -1970,7 +1970,7 @@ async function consolidateMemories(
     content: consolidatedContent,
     created: new Date().toISOString(), // Update timestamp to show recent activity
     embedding: newEmbedding || targetMemory.embedding, // Use new embedding or keep old one
-    embedding_model: newEmbedding ? MISTRAL_MODEL : targetMemory.embedding_model
+    embedding_model: newEmbedding ? AI_EMBEDDING_MODEL : targetMemory.embedding_model
   };
   
   // Load all memories, update the target, and save
@@ -2106,7 +2106,7 @@ export async function searchSessionMemories(
   }
   
   // Generate embedding for the query
-  const queryEmbedding = await generateMistralEmbedding(query);
+  const queryEmbedding = await generateAIEmbedding(query);
   const usedEmbeddings = queryEmbedding !== null;
   
   const queryLower = query.toLowerCase().trim();
@@ -2460,8 +2460,8 @@ export async function generateRAGResponse(query: string, relevantMemories: Sessi
   try {
     // Add delay if this call follows an embedding operation (rate limiting)
     if (delayBeforeCall) {
-      console.error("⏱️ Adding 3-second delay for Mistral API rate limiting...");
-      await delay(3000);
+      console.error("⏱️ Adding 1.5-second delay for AI API rate limiting...");
+      await delay(1500);
     }
 
     if (relevantMemories.length === 0) {
@@ -2505,14 +2505,14 @@ ${memoryContext}
 
 Please provide a helpful answer based on these memories.`;
 
-    const response = await fetch(MISTRAL_CHAT_URL, {
+    const response = await fetch(AI_CHAT_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${MISTRAL_API_KEY}`
+        'Authorization': `Bearer ${AI_API_KEY}`
       },
       body: JSON.stringify({
-        model: MISTRAL_CHAT_MODEL,
+        model: AI_CHAT_MODEL,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
@@ -2524,7 +2524,7 @@ Please provide a helpful answer based on these memories.`;
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`Mistral Chat API error: ${response.status} ${response.statusText}`, errorText);
+      console.error(`AI Chat API error: ${response.status} ${response.statusText}`, errorText);
       return null;
     }
 
@@ -2536,7 +2536,7 @@ Please provide a helpful answer based on these memories.`;
       return stripMarkdownFormatting(rawResponse);
     }
     
-    console.error('Unexpected Mistral Chat API response format:', data);
+    console.error('Unexpected AI Chat API response format:', data);
     return null;
   } catch (error) {
     console.error('Error generating RAG response:', error);
@@ -2590,14 +2590,14 @@ export async function extractContentMetadata(content: string): Promise<{
   domain: string;
 }> {
   try {
-    const response = await fetch(MISTRAL_CHAT_URL, {
+    const response = await fetch(AI_CHAT_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${MISTRAL_API_KEY}`
+        'Authorization': `Bearer ${AI_API_KEY}`
       },
       body: JSON.stringify({
-        model: MISTRAL_CHAT_MODEL,
+        model: AI_CHAT_MODEL,
         messages: [{
           role: 'user',
           content: `Analyze this content and extract structured metadata. Return ONLY a JSON object with these fields:
