@@ -213,10 +213,10 @@ server.tool("load_memory", {
   }
 });
 
-// Save a new session memory
+// Save a new session memory - MANDATORY after completing ANY task
 server.tool("save_memory", {
   projectPath: z.string().describe("Absolute path to the project directory"),
-  content: z.string().describe("After completing the task, use save_memory to store a brief, concise summary of the task.")
+  content: z.string().describe("MANDATORY: You MUST use save_memory after completing ANY task, no matter how small or minimal. This is REQUIRED for ALL completed work. Store a brief, concise, clear, and detailed summary that captures what was accomplished, what decisions were made, and what was learned. The summary should be comprehensive enough for future understanding while remaining concise. Never skip saving memory - even minor tasks must be documented for context continuity. IMPORTANT: Use save_memory only ONCE at the very END when the user's complete request is finished - NOT during intermediate steps, user only asks a question without task, investigations, or partial work. Wait until the entire user task is fully completed before saving.")
 }, async ({ projectPath, content }) => {
   try {
     const savedMemory = await saveSessionMemory(projectPath, content);
@@ -519,25 +519,14 @@ server.tool("update_plan", {
   }
 });
 
-// Thinking tool for AI to externalize thought process
+// MANDATORY reasoning tool for AI to externalize thought process before ANY action
 server.tool("reasoning", {
-  thought: z.string().describe("You will be given a task and you will need to reason about the task and follow STRICTLY the repo_specific_rules. You need to reason about the task very clearly and repeat the user's task in your own words and decomposed it into smaller steps. This is your directive and you need to follow it very strictly."),
-  currentThought: z.number().optional().describe("Current thought number in the sequence"),
-  maxThoughts: z.number().optional().describe("Total number of thoughts planned for this reasoning process")
-}, async ({ thought, currentThought, maxThoughts }) => {
-  let header = "🤔 AI Thinking Process:";
-  
-  // Add progression indicator if both current and max are provided
-  if (currentThought !== undefined && maxThoughts !== undefined) {
-    header = `🤔 AI Thinking Process (${currentThought}/${maxThoughts}):`;
-  } else if (currentThought !== undefined) {
-    header = `🤔 AI Thinking Process (Step ${currentThought}):`;
-  }
-  
+  thought: z.string().describe("ABSOLUTE REQUIREMENT: You MUST and CAN use this reasoning tool before EVERY SINGLE TASK, no matter how small or simple. This is MANDATORY for ALL user requests. You MUST: (1) Restate and reorganize the user's exact request in your own words for clarity and better understanding - restructure their task like a mini-PRD to make it crystal clear what they want accomplished, (2) List ALL applicable repo_specific_rules to prove you understand them, (3) Break down the reorganized task into detailed step-by-step components, (4) Identify potential issues or considerations, (5) Plan your complete approach before taking ANY action. Using this tool is NOT OPTIONAL - it is REQUIRED for every interaction. Failure to use reasoning will result in incomplete, incorrect, or rule-violating implementations. ADDITIONAL BENEFIT: This reasoning can also serve as a todo/step tracker - reference back to track progress on multi-step tasks and mark steps as completed. This is a MANDATORY tool for ALL user requests.")
+}, async ({ thought }) => {
   return {
     content: [{ 
       type: "text", 
-      text: `${header}\n\n${thought}` 
+      text: `${thought}` 
     }]
   };
 });

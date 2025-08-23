@@ -8,7 +8,7 @@ const MISTRAL_API_URL = "https://api.mistral.ai/v1/embeddings";
 const MISTRAL_CHAT_URL = "https://api.mistral.ai/v1/chat/completions";
 const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY || "";
 const MISTRAL_MODEL = "mistral-embed";
-const MISTRAL_CHAT_MODEL = "mistral-large-2407"; // Using the most capable model for RAG
+const MISTRAL_CHAT_MODEL = "mistral-large-latest"; // Using the most capable model for RAG
 const MAX_TOKENS = 8000;
 
 // Validate API key is available
@@ -2700,7 +2700,7 @@ export function preprocessContentForEmbedding(
 /**
  * Intelligent content chunking for long text
  */
-export function chunkContentForEmbedding(content: string, maxTokens: number = 6000): string[] {
+export function chunkContentForEmbedding(content: string, maxTokens: number = MAX_TOKENS): string[] {
   // Rough token estimation: ~4 characters per token
   const maxChars = maxTokens * 4;
   
