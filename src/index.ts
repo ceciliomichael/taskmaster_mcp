@@ -154,8 +154,11 @@ server.tool("load_memory", {
     // Extract just the memories for RAG
     const relevantMemories = searchResults.map(result => result.memory);
     
-    // Generate intelligent RAG response
-    const ragResponse = await generateRAGResponse(query, relevantMemories);
+    // Check if embeddings were used in the search (for rate limiting)
+    const usedEmbeddings = searchResults.some(result => result.usedEmbeddings);
+    
+    // Generate intelligent RAG response with delay if embeddings were used
+    const ragResponse = await generateRAGResponse(query, relevantMemories, usedEmbeddings);
     
     if (ragResponse) {
       // Return RAG-powered intelligent answer

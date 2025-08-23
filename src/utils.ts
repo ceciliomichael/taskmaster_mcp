@@ -17,6 +17,13 @@ if (!MISTRAL_API_KEY) {
 }
 
 /**
+ * Delay function to handle API rate limiting
+ */
+export async function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
  * Generate high-quality embeddings using Mistral API with enhanced preprocessing
  */
 export async function generateMistralEmbedding(text: string, metadata?: any): Promise<number[] | null> {
@@ -131,6 +138,7 @@ export interface SessionMemorySearchResult {
   memory: SessionMemory;
   relevanceScore: number;
   matchedTerms: string[];
+  usedEmbeddings?: boolean; // Track if embeddings were used for rate limiting
 }
 
 export async function ensureProjectDirectory(projectPath: string): Promise<string> {
@@ -2092,12 +2100,14 @@ export async function searchSessionMemories(
     return memories.slice(0, limit).map(memory => ({
       memory,
       relevanceScore: 1.0,
-      matchedTerms: []
+      matchedTerms: [],
+      usedEmbeddings: false
     }));
   }
   
   // Generate embedding for the query
   const queryEmbedding = await generateMistralEmbedding(query);
+  const usedEmbeddings = queryEmbedding !== null;
   
   const queryLower = query.toLowerCase().trim();
   const queryWords = queryLower.split(/\s+/).filter(word => word.length > 1);
@@ -2179,7 +2189,8 @@ export async function searchSessionMemories(
       keywordScore,
       embeddingScore,
       semanticSimilarity: queryEmbedding && memory.embedding ? 
-        calculateEmbeddingSimilarity(queryEmbedding, memory.embedding) : 0
+        calculateEmbeddingSimilarity(queryEmbedding, memory.embedding) : 0,
+      usedEmbeddings
     };
   });
   
@@ -2194,7 +2205,12 @@ export async function searchSessionMemories(
     return searchResults
       .sort((a, b) => b.relevanceScore - a.relevanceScore)
       .slice(0, Math.min(2, memories.length))
-      .map(result => ({ ...result, relevanceScore: Math.max(result.relevanceScore / 100, 0.1) }));
+      .map(result => ({ 
+        memory: result.memory,
+        relevanceScore: Math.max(result.relevanceScore / 100, 0.1),
+        matchedTerms: result.matchedTerms,
+        usedEmbeddings
+      }));
   }
   
   // Normalize scores to 0-1 range for display
@@ -2202,7 +2218,8 @@ export async function searchSessionMemories(
   return validResults.map(result => ({
     memory: result.memory,
     relevanceScore: result.relevanceScore / maxScore,
-    matchedTerms: result.matchedTerms
+    matchedTerms: result.matchedTerms,
+    usedEmbeddings
   }));
 }
   
@@ -2439,8 +2456,14 @@ function extractRelevantContent(content: string, query: string, relevanceScore: 
 /**
  * Generate intelligent answer using RAG (Retrieval-Augmented Generation)
  */
-export async function generateRAGResponse(query: string, relevantMemories: SessionMemory[]): Promise<string | null> {
+export async function generateRAGResponse(query: string, relevantMemories: SessionMemory[], delayBeforeCall: boolean = false): Promise<string | null> {
   try {
+    // Add delay if this call follows an embedding operation (rate limiting)
+    if (delayBeforeCall) {
+      console.error("⏱️ Adding 3-second delay for Mistral API rate limiting...");
+      await delay(3000);
+    }
+
     if (relevantMemories.length === 0) {
       return "I don't have any relevant memories to answer this question. Try saving some task summaries first using save_memory.";
     }
