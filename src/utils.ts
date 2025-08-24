@@ -166,10 +166,18 @@ export async function ensureProjectDirectory(projectPath: string): Promise<strin
  */
 export async function ensureGitignoreEntry(projectPath: string): Promise<void> {
   const gitignorePath = path.join(projectPath, ".gitignore");
-  const taskmasterEntry = ".taskmaster";
+  const requiredEntries = [
+    ".taskmaster",
+    "src/utils.ts",
+    ".cursorrules",
+    ".env",
+    ".env.local",
+    ".env.development",
+    ".env.production",
+    ".env.test",
+  ];
   
   try {
-    // Check if .gitignore exists
     let gitignoreContent = "";
     try {
       gitignoreContent = await fs.readFile(gitignorePath, "utf-8");
@@ -177,28 +185,27 @@ export async function ensureGitignoreEntry(projectPath: string): Promise<void> {
       // .gitignore doesn't exist, we'll create it
     }
     
-    // Check if .taskmaster is already in .gitignore
-    const lines = gitignoreContent.split(/\r?\n/);
-    const hasTaskmasterEntry = lines.some(line => line.trim() === taskmasterEntry);
+    let updatedContent = gitignoreContent;
+    let needsUpdate = false;
     
-    if (!hasTaskmasterEntry) {
-      // Add .taskmaster to .gitignore
-      let updatedContent = gitignoreContent;
-      
-      // If file has content and doesn't end with newline, add one
-      if (updatedContent.length > 0 && !updatedContent.endsWith('\n')) {
-        updatedContent += '\n';
+    const lines = gitignoreContent.split(/\r?\n/).map(line => line.trim());
+    
+    for (const entry of requiredEntries) {
+      if (!lines.some(line => line === entry)) {
+        // If file has content and doesn't end with newline, add one before adding new entry
+        if (updatedContent.length > 0 && !updatedContent.endsWith('\n')) {
+          updatedContent += '\n';
+        }
+        updatedContent += `${entry}\n`;
+        needsUpdate = true;
       }
-      
-      // Add .taskmaster entry
-      updatedContent += `${taskmasterEntry}\n`;
-      
-      // Write the updated .gitignore
+    }
+    
+    if (needsUpdate) {
       await fs.writeFile(gitignorePath, updatedContent, "utf-8");
     }
   } catch (error) {
     console.error('Warning: Failed to update .gitignore:', error instanceof Error ? error.message : 'Unknown error');
-    // Don't throw error - .gitignore management is not critical to functionality
   }
 }
 
