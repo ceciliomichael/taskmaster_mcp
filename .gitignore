@@ -6,3 +6,9 @@ dist/
 .env
 
 .taskmaster
+src/utils.ts
+.cursorrules
+.env.local
+.env.development
+.env.production
+.env.test
