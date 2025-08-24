@@ -168,7 +168,6 @@ export async function ensureGitignoreEntry(projectPath: string): Promise<void> {
   const gitignorePath = path.join(projectPath, ".gitignore");
   const requiredEntries = [
     ".taskmaster",
-    "src/utils.ts",
     ".cursorrules",
     ".env",
     ".env.local",
