@@ -155,7 +155,51 @@ export async function ensureProjectDirectory(projectPath: string): Promise<strin
     await fs.mkdir(taskmasterDir, { recursive: true });
   }
 
+  // Ensure .gitignore includes .taskmaster
+  await ensureGitignoreEntry(projectPath);
+
   return taskmasterDir;
+}
+
+/**
+ * Ensure .gitignore exists and contains .taskmaster entry
+ */
+export async function ensureGitignoreEntry(projectPath: string): Promise<void> {
+  const gitignorePath = path.join(projectPath, ".gitignore");
+  const taskmasterEntry = ".taskmaster";
+  
+  try {
+    // Check if .gitignore exists
+    let gitignoreContent = "";
+    try {
+      gitignoreContent = await fs.readFile(gitignorePath, "utf-8");
+    } catch {
+      // .gitignore doesn't exist, we'll create it
+    }
+    
+    // Check if .taskmaster is already in .gitignore
+    const lines = gitignoreContent.split(/\r?\n/);
+    const hasTaskmasterEntry = lines.some(line => line.trim() === taskmasterEntry);
+    
+    if (!hasTaskmasterEntry) {
+      // Add .taskmaster to .gitignore
+      let updatedContent = gitignoreContent;
+      
+      // If file has content and doesn't end with newline, add one
+      if (updatedContent.length > 0 && !updatedContent.endsWith('\n')) {
+        updatedContent += '\n';
+      }
+      
+      // Add .taskmaster entry
+      updatedContent += `${taskmasterEntry}\n`;
+      
+      // Write the updated .gitignore
+      await fs.writeFile(gitignorePath, updatedContent, "utf-8");
+    }
+  } catch (error) {
+    console.error('Warning: Failed to update .gitignore:', error instanceof Error ? error.message : 'Unknown error');
+    // Don't throw error - .gitignore management is not critical to functionality
+  }
 }
 
 export async function loadProjectData(projectPath: string): Promise<ProjectData> {
@@ -2461,7 +2505,7 @@ export async function generateRAGResponse(query: string, relevantMemories: Sessi
     // Add delay if this call follows an embedding operation (rate limiting)
     if (delayBeforeCall) {
       console.error("⏱️ Adding 1.5-second delay for AI API rate limiting...");
-      await delay(1500);
+      await delay(1000);
     }
 
     if (relevantMemories.length === 0) {
