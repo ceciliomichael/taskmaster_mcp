@@ -411,18 +411,15 @@ server.tool("create_todo", {
     todoList.items.forEach((item, index) => {
       summary += `Task ${item.id}: ${item.task}\n`;
     });
-    summary += `\n`;
     
     if (nextTask) {
       summary += `ACTIVE TASK:\nTask ${nextTask.id}: ${nextTask.task}\n\n`;
     }
     
-    const note = `The todo.md file tracks your development progress and gets updated automatically.`;
-    
           return {
         content: [{
           type: "text",
-          text: summary + note
+          text: summary
         }]
       };
   } catch (error) {
@@ -433,14 +430,14 @@ server.tool("create_todo", {
   }
 });
 
-// CRITICAL: Update TODO status throughout development - mark tasks as in_progress when starting, completed when done
+// CRITICAL: Update TODO status throughout development - mark tasks as completed when done
 server.tool("update_todo", {
   projectPath: z.string().describe("Absolute path to the project directory"),
   updates: z.array(z.object({
     id: z.string().describe("ID of the TODO item to update (use incremental numbers: 1, 2, 3, etc.)"),
-    status: z.enum(["pending", "in_progress", "completed", "cancelled"]).optional().describe("ESSENTIAL: Always update status - 'in_progress' when starting work, 'completed' when task is finished. This maintains accurate development tracking."),
+    status: z.enum(["pending", "completed", "cancelled"]).optional().describe("ESSENTIAL: Always update status - 'completed' when task is finished, 'cancelled' if no longer needed. This maintains accurate development tracking."),
     content: z.string().optional().describe("New task description if needed")
-  })).describe("MANDATORY: Update TODO items as you work. Mark tasks 'in_progress' when you start them and 'completed' when finished. This keeps development progress visible and organized.")
+  })).describe("MANDATORY: Update TODO items as you work. Mark tasks 'completed' when finished. This keeps development progress visible and organized.")
 }, async ({ projectPath, updates }) => {
   try {
     if (updates.length === 0) {
@@ -454,17 +451,14 @@ server.tool("update_todo", {
     
     const completedCount = todoList.items.filter(item => item.status === "completed").length;
     const pendingCount = todoList.items.filter(item => item.status === "pending").length;
-    const inProgressCount = todoList.items.filter(item => item.status === "in_progress").length;
     
     let summary = `TODO List Updated Successfully!\n\n`;
     summary += `CURRENT STATUS:\n`;
     summary += `- Completed: ${completedCount}\n`;
-    summary += `- In Progress: ${inProgressCount}\n`;
     summary += `- Pending: ${pendingCount}\n\n`;
     
     // Group updates by action type
     const actionGroups: Record<string, Array<{id: string, task: string}>> = {
-      'started': [],
       'completed': [],
       'pending': [],
       'cancelled': [],
@@ -476,7 +470,6 @@ server.tool("update_todo", {
       if (item) {
         if (update.status) {
           const groupKey = {
-            'in_progress': 'started',
             'completed': 'completed',
             'pending': 'pending',
             'cancelled': 'cancelled'
@@ -491,15 +484,6 @@ server.tool("update_todo", {
         }
       }
     });
-    
-    // Output grouped actions
-    if (actionGroups.started.length > 0) {
-      summary += `ACTIVE TASK:\n`;
-      actionGroups.started.forEach(item => {
-        summary += `Task ${item.id}: ${item.task}\n`;
-      });
-      summary += `\n`;
-    }
     
     if (actionGroups.completed.length > 0) {
       summary += `COMPLETED:\n`;
@@ -535,7 +519,7 @@ server.tool("update_todo", {
     
     const nextTask = todoList.items.find(item => item.status === 'pending');
     if (nextTask) {
-      summary += `\nNEXT TASK: ${nextTask.task}`;
+      summary += `NEXT TASK: ${nextTask.task}`;
     }
     
     return {

@@ -89,7 +89,7 @@ export interface DocumentSearchResult {
 export interface TodoItem {
   id: string;
   task: string;
-  status: "pending" | "in_progress" | "completed" | "cancelled";
+  status: "pending" | "completed" | "cancelled";
   created: string;
   updated: string;
 }

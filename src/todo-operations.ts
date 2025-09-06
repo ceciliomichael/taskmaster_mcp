@@ -136,17 +136,14 @@ function formatTodoAsMarkdown(todoList: TodoList): string {
   // Add summary
   const completedCount = todoList.items.filter(item => item.status === "completed").length;
   const pendingCount = todoList.items.filter(item => item.status === "pending").length;
-  const inProgressCount = todoList.items.filter(item => item.status === "in_progress").length;
   
   lines.push(`**Progress:** ${completedCount}/${todoList.totalItems} completed`);
   lines.push(`- 🟢 Completed: ${completedCount}`);
-  lines.push(`- 🔵 In Progress: ${inProgressCount}`);
   lines.push(`- ⚪ Pending: ${pendingCount}`);
   lines.push("");
   
   // Group items by status
   const pendingItems = todoList.items.filter(item => item.status === "pending");
-  const inProgressItems = todoList.items.filter(item => item.status === "in_progress");
   const completedItems = todoList.items.filter(item => item.status === "completed");
   const cancelledItems = todoList.items.filter(item => item.status === "cancelled");
   
@@ -160,15 +157,7 @@ function formatTodoAsMarkdown(todoList: TodoList): string {
     lines.push("");
   }
   
-  // Add in-progress items
-  if (inProgressItems.length > 0) {
-    lines.push("## In Progress");
-    lines.push("");
-    for (const item of inProgressItems) {
-      lines.push(`- [ ] ${item.task} <!-- id: ${item.id} -->`);
-    }
-    lines.push("");
-  }
+
   
   // Add completed items
   if (completedItems.length > 0) {
@@ -235,15 +224,6 @@ export async function updateTodoItems(
     const item = todoList.items.find(item => item.id === update.id);
     if (item) {
       if (update.status !== undefined) {
-        // If setting a task to in_progress, move any other in_progress tasks back to pending
-        if (update.status === 'in_progress') {
-          todoList.items.forEach(otherItem => {
-            if (otherItem.id !== item.id && otherItem.status === 'in_progress') {
-              otherItem.status = 'pending';
-              otherItem.updated = now;
-            }
-          });
-        }
         item.status = update.status;
       }
       if (update.content !== undefined) {
