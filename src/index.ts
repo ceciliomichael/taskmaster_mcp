@@ -7,25 +7,153 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { fileURLToPath } from "url";
 import path from "path";
+import chalk from 'chalk';
 import { 
   loadDocuments,
   formatDocumentContent,
-  movePlanToArchive,
   loadSessionMemories,
   saveSessionMemory,
   getTimeAgo,
   searchSessionMemories,
   generateRAGResponse,
-  extractContentMetadata,
-  parsePlanContent,
-  createNewPlan,
-  updatePlanFile
+  extractContentMetadata
 } from "./utils.js";
+
+interface ThoughtData {
+  thought: string;
+  thoughtNumber: number;
+  totalThoughts: number;
+  isRevision?: boolean;
+  revisesThought?: number;
+  branchFromThought?: number;
+  branchId?: string;
+  needsMoreThoughts?: boolean;
+  nextThoughtNeeded: boolean;
+}
+
+class SequentialThinkingServer {
+  private thoughtHistory: ThoughtData[] = [];
+  private branches: Record<string, ThoughtData[]> = {};
+  private disableThoughtLogging: boolean;
+
+  constructor() {
+    this.disableThoughtLogging = (process.env.DISABLE_THOUGHT_LOGGING || "").toLowerCase() === "true";
+  }
+
+  private validateThoughtData(input: unknown): ThoughtData {
+    const data = input as Record<string, unknown>;
+
+    if (!data.thought || typeof data.thought !== 'string') {
+      throw new Error('Invalid thought: must be a string');
+    }
+    if (!data.thoughtNumber || typeof data.thoughtNumber !== 'number') {
+      throw new Error('Invalid thoughtNumber: must be a number');
+    }
+    if (!data.totalThoughts || typeof data.totalThoughts !== 'number') {
+      throw new Error('Invalid totalThoughts: must be a number');
+    }
+    if (typeof data.nextThoughtNeeded !== 'boolean') {
+      throw new Error('Invalid nextThoughtNeeded: must be a boolean');
+    }
+
+    return {
+      thought: data.thought,
+      thoughtNumber: data.thoughtNumber,
+      totalThoughts: data.totalThoughts,
+      nextThoughtNeeded: data.nextThoughtNeeded,
+      isRevision: data.isRevision as boolean | undefined,
+      revisesThought: data.revisesThought as number | undefined,
+      branchFromThought: data.branchFromThought as number | undefined,
+      branchId: data.branchId as string | undefined,
+      needsMoreThoughts: data.needsMoreThoughts as boolean | undefined,
+    };
+  }
+
+  private formatThought(thoughtData: ThoughtData): string {
+    const { thoughtNumber, totalThoughts, thought, isRevision, revisesThought, branchFromThought, branchId } = thoughtData;
+
+    let prefix = '';
+    let context = '';
+
+    if (isRevision) {
+      prefix = chalk.yellow('🔄 Revision');
+      context = ` (revising thought ${revisesThought})`;
+    } else if (branchFromThought) {
+      prefix = chalk.green('🌿 Branch');
+      context = ` (from thought ${branchFromThought}, ID: ${branchId})`;
+    } else {
+      prefix = chalk.blue('💭 Thought');
+      context = '';
+    }
+
+    const header = `${prefix} ${thoughtNumber}/${totalThoughts}${context}`;
+    const border = '─'.repeat(Math.max(header.length, thought.length) + 4);
+
+    return `
+┌${border}┐
+│ ${header} │
+├${border}┤
+│ ${thought.padEnd(border.length - 2)} │
+└${border}┘`;
+  }
+
+  public processThought(input: unknown): { content: Array<{ type: string; text: string }>; isError?: boolean } {
+    try {
+      const validatedInput = this.validateThoughtData(input);
+
+      if (validatedInput.thoughtNumber > validatedInput.totalThoughts) {
+        validatedInput.totalThoughts = validatedInput.thoughtNumber;
+      }
+
+      this.thoughtHistory.push(validatedInput);
+
+      if (validatedInput.branchFromThought && validatedInput.branchId) {
+        if (!this.branches[validatedInput.branchId]) {
+          this.branches[validatedInput.branchId] = [];
+        }
+        this.branches[validatedInput.branchId].push(validatedInput);
+      }
+
+      if (!this.disableThoughtLogging) {
+        const formattedThought = this.formatThought(validatedInput);
+        console.error(formattedThought);
+      }
+
+      const metadata = JSON.stringify({
+        thoughtNumber: validatedInput.thoughtNumber,
+        totalThoughts: validatedInput.totalThoughts,
+        nextThoughtNeeded: validatedInput.nextThoughtNeeded,
+        branches: Object.keys(this.branches),
+        thoughtHistoryLength: this.thoughtHistory.length
+      }, null, 2);
+
+      return {
+        content: [{
+          type: "text",
+          text: `${validatedInput.thought}\n\n---\n\n${metadata}`
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            error: error instanceof Error ? error.message : String(error),
+            status: 'failed'
+          }, null, 2)
+        }],
+        isError: true
+      };
+    }
+  }
+}
 
 const server = new McpServer({
   name: "taskmaster",
   version: "1.0.0"
 });
+
+const thinkingServer = new SequentialThinkingServer();
 
 
 
@@ -132,8 +260,8 @@ server.tool("get_docs", {
 // Search and load relevant session memories with RAG-powered intelligent answers
 server.tool("load_memory", {
   projectPath: z.string().describe("Absolute path to the project directory"),
-  query: z.string().describe("You can use load_memory to ask about relevant information from previous sessions when it pertains to your current task. Use this to understand what was accomplished in past sessions and what context you need to know to avoid repeating work or contradicting previous decisions."),
-  limit: z.number().min(1).max(10).default(5).describe("Number of memories to return (1-10)")
+  query: z.string().describe("Search through detailed task memories from previous development sessions. Each memory contains comprehensive information about files created/modified, implementation details, and session accomplishments. Use this to understand what was accomplished in past tasks, avoid repeating work, get context on existing implementations, and maintain continuity across development sessions. Results show task numbers (Task 1, Task 2, etc.) for easy reference and tracking."),
+  limit: z.number().min(1).max(10).default(5).describe("Number of task memories to return (1-10)")
 }, async ({ projectPath, query, limit = 5 }) => {
   try {
     const searchResults = await searchSessionMemories(projectPath, query, limit);
@@ -160,27 +288,35 @@ server.tool("load_memory", {
     // Generate intelligent RAG response with delay if embeddings were used
     const ragResponse = await generateRAGResponse(query, relevantMemories, usedEmbeddings);
     
+    // Helper function to extract task number from memory content
+    const extractTaskNumber = (content: string): string => {
+      const match = content.match(/^Task (\d+):/);
+      return match ? match[1] : '?';
+    };
+    
     if (ragResponse) {
       // Return RAG-powered intelligent answer
       let content = `🧠 AI Memory Assistant Answer\n`;
       content += `🔍 Query: "${query}"\n\n`;
       content += `${ragResponse}\n\n`;
       
-      // Add source memories for reference
-      content += `📚 Based on ${searchResults.length} relevant memories:\n`;
+      // Add source memories for reference with task numbers
+      content += `📚 Based on ${searchResults.length} relevant task memories:\n`;
       searchResults.forEach((result, index) => {
         const timeAgo = getTimeAgo(result.memory.created);
         const relevancePercent = Math.round(result.relevanceScore * 100);
+        const taskNumber = extractTaskNumber(result.memory.content);
         
-        // Show abbreviated memory content
-        const shortContent = result.memory.content.length > 100 
-          ? result.memory.content.substring(0, 100) + '...' 
-          : result.memory.content;
+        // Show abbreviated memory content without the "Task N:" prefix for display
+        const contentWithoutTask = result.memory.content.replace(/^Task \d+:\s*/, '');
+        const shortContent = contentWithoutTask.length > 100 
+          ? contentWithoutTask.substring(0, 100) + '...' 
+          : contentWithoutTask;
           
-        content += `${index + 1}. 📝 (${relevancePercent}% match, ${timeAgo}): ${shortContent}\n`;
+        content += `${index + 1}. 🔢 Task ${taskNumber} (${relevancePercent}% match, ${timeAgo}): ${shortContent}\n`;
       });
       
-      content += `\n💡 This answer was generated by AI based on your project memories.`;
+      content += `\n💡 This answer was generated by AI based on your detailed task memories.`;
       
       return {
         content: [{ type: "text", text: content }]
@@ -189,20 +325,24 @@ server.tool("load_memory", {
       // Fallback to traditional memory search if RAG fails
       let content = `🧠 Memory Search Results (${searchResults.length} matches found)\n`;
       content += `🔍 Query: "${query}"\n`;
-      content += `⚠️ AI synthesis unavailable, showing raw memories:\n\n`;
+      content += `⚠️ AI synthesis unavailable, showing raw task memories:\n\n`;
       
       searchResults.forEach((result, index) => {
         const timeAgo = getTimeAgo(result.memory.created);
         const relevancePercent = Math.round(result.relevanceScore * 100);
+        const taskNumber = extractTaskNumber(result.memory.content);
         
-        content += `${index + 1}. 📝 (${relevancePercent}% match, ${timeAgo})\n`;
+        // Display content without the "Task N:" prefix for better readability
+        const contentWithoutTask = result.memory.content.replace(/^Task \d+:\s*/, '');
+        
+        content += `${index + 1}. 🔢 Task ${taskNumber} (${relevancePercent}% match, ${timeAgo})\n`;
         if (result.matchedTerms.length > 0) {
           content += `   🎯 Matched: ${result.matchedTerms.join(', ')}\n`;
         }
-        content += `   ${result.memory.content}\n\n`;
+        content += `   📝 ${contentWithoutTask}\n\n`;
       });
       
-      content += `💡 These memories were found based on relevance to your query.`;
+      content += `💡 These task memories were found based on relevance to your query.`;
       
       return {
         content: [{ type: "text", text: content.trim() }]
@@ -219,15 +359,22 @@ server.tool("load_memory", {
 // Save a new session memory - MANDATORY after completing ANY task
 server.tool("save_memory", {
   projectPath: z.string().describe("Absolute path to the project directory"),
-  content: z.string().describe("MANDATORY: After completing ANY development task, code implementation, file creation, modification, or technical work, you MUST use save_memory to store a very brief, very concise but detailed summary of what was accomplished. This applies to ALL development activities including but not limited to: creating components, implementing features, fixing bugs, refactoring code, adding functionality, modifying existing code, creating new files, updating configurations, or any other code-related changes. DO NOT save memory ONLY for non-development tasks such as: answering questions without implementation, providing explanations without code changes, committing code to version control, or other administrative tasks that don't involve actual development work.")
+  content: z.string().describe("MANDATORY: After completing ANY development task, code implementation, file creation, modification, or technical work, you MUST use save_memory to store a detailed summary of what was accomplished. Include SPECIFIC DETAILS: 1) Files Created: List each new file with its path and description of its purpose/functionality. 2) Files Modified: List each modified file with its path and specific description of what was changed, added, or updated. 3) Implementation Details: Describe the technical approach, key functions/components created, and how they work. 4) Session Summary: Overall accomplishment and how it fits into the project goals. Be comprehensive and specific - this creates a detailed development history for future reference. DO NOT save memory for non-development tasks like answering questions, explanations without code changes, or administrative tasks.")
 }, async ({ projectPath, content }) => {
   try {
-    const savedMemory = await saveSessionMemory(projectPath, content);
+    // Load existing memories to determine task number
+    const existingMemories = await loadSessionMemories(projectPath);
+    const taskNumber = existingMemories.length + 1;
+    
+    // Format content with task number and structure
+    const formattedContent = `Task ${taskNumber}: ${content}`;
+    
+    const savedMemory = await saveSessionMemory(projectPath, formattedContent);
     
     return {
       content: [{
         type: "text",
-        text: `💾 Memory Saved Successfully!\n\n📝 Content: \n${content}\n\n🆔 Session: ${savedMemory.session_id.slice(0, 8)}\n⏰ Timestamp: ${new Date(savedMemory.created).toLocaleString()}\n\n✨ This memory will help maintain context in future conversations.`
+        text: `💾 Memory Saved Successfully as Task ${taskNumber}!\n\n📝 Content: \n${content}\n\n🔢 Task Number: ${taskNumber}\n🆔 Session: ${savedMemory.session_id.slice(0, 8)}\n⏰ Timestamp: ${new Date(savedMemory.created).toLocaleString()}\n\n✨ This detailed task memory will help maintain comprehensive development context in future conversations.`
       }]
     };
   } catch (error) {
@@ -238,299 +385,27 @@ server.tool("save_memory", {
   }
 });
 
-// Archive current plan and start fresh
-server.tool("archive_plan", {
-  projectPath: z.string().describe("Absolute path to the project directory")
-}, async ({ projectPath }) => {
-  try {
-    const result = await movePlanToArchive(projectPath);
-    
-    if (!result.success) {
-      return {
-        content: [{ type: "text", text: `❌ ${result.error}` }],
-        isError: true
-      };
-    }
-    
-    return {
-      content: [{
-        type: "text",
-        text: `✅ Plan archived successfully!\n📄 Moved: .taskmaster/plan/active_plan/plan.md → .taskmaster/plan/archived_plan/${result.newFilename}\n\n💡 Congratulations on finishing the plan! You can now create a new plan using new_plan.`
-      }]
-    };
-  } catch (error) {
-    return {
-      content: [{ type: "text", text: `❌ Error archiving plan: ${error instanceof Error ? error.message : 'Unknown error'}` }],
-      isError: true
-    };
-  }
-});
 
-// Check if plan.md exists and show current status
-server.tool("check_plan", {
-  projectPath: z.string().describe("Absolute path to the project directory")
-}, async ({ projectPath }) => {
-  try {
-    const planOverview = await parsePlanContent(projectPath);
-    
-    if (!planOverview.exists) {
-      return {
-        content: [{
-          type: "text",
-          text: `📋 No plan.md found in project root.\n\n💡 Use new_plan to create a new project plan from template.`
-        }]
-      };
-    }
-    
-    const { projectName, projectDescription, phases, statusCounts, currentPhase, lastModified } = planOverview;
-    
-    let content = `📋 PROJECT PLAN STATUS\n\n`;
-    content += `Project: ${projectName || 'Unnamed Project'}\n`;
-    if (projectDescription) {
-      content += `Description: ${projectDescription}\n`;
-    }
-    if (lastModified) {
-      content += `Last Modified: ${new Date(lastModified).toLocaleString()}\n`;
-    }
-    content += `\n📊 PHASE OVERVIEW\n`;
-    content += `• Total Phases: ${phases.length}\n`;
-    content += `• ✅ Completed: ${statusCounts.completed}\n`;
-    content += `• 🔄 In Progress: ${statusCounts.inProgress}\n`;
-    content += `• ⏳ Pending: ${statusCounts.pending}\n`;
-    content += `• 🚫 Blocked: ${statusCounts.blocked}\n\n`;
-    
-    if (currentPhase) {
-      content += `🎯 CURRENT PHASE\n`;
-      content += `Phase ${currentPhase.phaseNumber}: ${currentPhase.name} - [${currentPhase.status}]\n`;
-      if (currentPhase.description) {
-        content += `Description: ${currentPhase.description.substring(0, 150)}${currentPhase.description.length > 150 ? '...' : ''}\n`;
-      }
-      if (currentPhase.filesToCreate.length > 0) {
-        content += `Files to Create: ${currentPhase.filesToCreate.length} file(s)\n`;
-      }
-    } else {
-      content += `🎉 ALL PHASES COMPLETED!\n`;
-      content += `The project plan has been fully executed. Consider using archive_plan to archive the completed plan.\n`;
-    }
-    
-    if (phases.length > 0) {
-      content += `\n📋 ALL PHASES\n`;
-      phases.forEach(phase => {
-        const statusEmoji = {
-          'COMPLETED': '✅',
-          'IN PROGRESS': '🔄', 
-          'BLOCKED': '🚫',
-          'PENDING': '⏳'
-        }[phase.status] || '❓';
-        
-        content += `${statusEmoji} Phase ${phase.phaseNumber}: ${phase.name} [${phase.status}]\n`;
-        if (phase.filesToCreate.length > 0) {
-          content += `   📁 ${phase.filesToCreate.length} file(s) to create\n`;
-        }
-      });
-    }
-    
-    content += `\n💡 Use update_plan to modify phases or archive_plan when completed.`;
-    
-    return {
-      content: [{ type: "text", text: content }]
-    };
-  } catch (error) {
-    return {
-      content: [{ type: "text", text: `❌ Error checking plan: ${error instanceof Error ? error.message : 'Unknown error'}` }],
-      isError: true
-    };
-  }
-});
-
-// Create a new plan.md from template
-server.tool("new_plan", {
-  projectPath: z.string().describe("Absolute path to the project directory"),
-  projectName: z.string().describe("Name of the project"),
-  projectDescription: z.string().optional().describe("Brief description of the project goals"),
-  initialPhases: z.array(z.object({
-    name: z.string().describe("Phase name"),
-    description: z.string().describe("What this phase accomplishes"),
-    files: z.array(z.object({
-      path: z.string().describe("Relative file path"),
-      description: z.string().describe("What this file does")
-    })).optional().describe("Files to create in this phase")
-  })).optional().describe("Initial phases to create (optional)")
-}, async ({ projectPath, projectName, projectDescription, initialPhases }) => {
-  try {
-    const result = await createNewPlan(projectPath, {
-      projectName,
-      projectDescription,
-      initialPhases
-    });
-    
-    let content = `✅ NEW PLAN CREATED SUCCESSFULLY!\n\n`;
-    
-    // Show auto-archive message if a plan was archived
-    if (result.archived) {
-      content += `📦 Auto-archived existing plan: ${result.archived}\n`;
-    }
-    
-    content += `📄 Created: .taskmaster/plan/active_plan/plan.md\n`;
-    content += `📋 Project: ${projectName}\n`;
-    
-    if (projectDescription) {
-      content += `📝 Description: ${projectDescription}\n`;
-    }
-    
-    if (initialPhases && initialPhases.length > 0) {
-      content += `🎯 Initial Phases: ${initialPhases.length}\n`;
-      initialPhases.forEach((phase, index) => {
-        content += `   ${index + 1}. ${phase.name}\n`;
-      });
-    } else {
-      content += `🎯 Created with default template phase\n`;
-    }
-    
-    content += `\n💡 Use check_plan to view the plan status or update_plan to modify it.`;
-    
-    return {
-      content: [{ type: "text", text: content }]
-    };
-  } catch (error) {
-    return {
-      content: [{ type: "text", text: `❌ Error creating plan: ${error instanceof Error ? error.message : 'Unknown error'}` }],
-      isError: true
-    };
-  }
-});
-
-// Update plan.md content
-server.tool("update_plan", {
-  projectPath: z.string().describe("Absolute path to the project directory"),
-  updateType: z.enum(["phase_status", "add_phase", "update_description", "add_files", "update_reasoning"]).describe("Type of update to perform"),
-  phaseNumber: z.number().optional().describe("Phase number to update (required for phase-specific operations)"),
-  newStatus: z.enum(["PENDING", "IN PROGRESS", "COMPLETED", "BLOCKED"]).optional().describe("New status for phase_status updates"),
-  phaseName: z.string().optional().describe("Name for new phase (required for add_phase)"),
-  description: z.string().optional().describe("Description for new phase or project description update"),
-  files: z.array(z.object({
-    path: z.string().describe("Relative file path"),
-    description: z.string().describe("What this file does")
-  })).optional().describe("Files to add to a phase"),
-  reasoning: z.string().optional().describe("Technical reasoning content for a phase"),
-  projectDescription: z.string().optional().describe("New project description (for update_description type)")
-}, async ({ projectPath, updateType, phaseNumber, newStatus, phaseName, description, files, reasoning, projectDescription }) => {
-  try {
-    const operation = {
-      type: updateType,
-      phaseNumber,
-      newStatus,
-      phaseName,
-      description,
-      files,
-      reasoning,
-      projectDescription
-    };
-    
-    await updatePlanFile(projectPath, operation);
-    
-    // Get updated plan status for detailed feedback
-    const updatedPlan = await parsePlanContent(projectPath);
-    
-    let content = `✅ PLAN UPDATED SUCCESSFULLY!\n\n`;
-    
-    switch (updateType) {
-      case 'phase_status':
-        const updatedPhase = updatedPlan.phases.find(p => p.phaseNumber === phaseNumber);
-        content += `🔄 Phase ${phaseNumber}: ${updatedPhase?.name || 'Unknown'} → [${newStatus}]\n\n`;
-        
-        // Show current status overview
-        content += `📊 CURRENT STATUS OVERVIEW\n`;
-        content += `• ✅ Completed: ${updatedPlan.statusCounts.completed}\n`;
-        content += `• 🔄 In Progress: ${updatedPlan.statusCounts.inProgress}\n`;
-        content += `• ⏳ Pending: ${updatedPlan.statusCounts.pending}\n`;
-        content += `• 🚫 Blocked: ${updatedPlan.statusCounts.blocked}\n\n`;
-        
-        // Show current active phase
-        if (updatedPlan.currentPhase) {
-          content += `🎯 CURRENT ACTIVE PHASE\n`;
-          content += `Phase ${updatedPlan.currentPhase.phaseNumber}: ${updatedPlan.currentPhase.name} [${updatedPlan.currentPhase.status}]\n\n`;
-          
-          if (updatedPlan.currentPhase.description) {
-            content += `📝 Description:\n${updatedPlan.currentPhase.description}\n\n`;
-          }
-          
-          if (updatedPlan.currentPhase.filesToCreate.length > 0) {
-            content += `📁 Files to Create (${updatedPlan.currentPhase.filesToCreate.length}):\n`;
-            updatedPlan.currentPhase.filesToCreate.forEach((file, index) => {
-              content += `   ${index + 1}. [${file.path}] - ${file.description}\n`;
-            });
-          }
-        } else {
-          content += `🎉 ALL PHASES COMPLETED!\n`;
-          content += `The project plan has been fully executed. Consider using archive_plan to archive the completed plan.\n`;
-        }
-        break;
-        
-      case 'add_phase':
-        const totalPhases = updatedPlan.phases.length;
-        content += `➕ Added Phase ${totalPhases}: "${phaseName}"\n`;
-        if (files && files.length > 0) {
-          content += `📁 Included ${files.length} file(s)\n`;
-        }
-        content += `\n📊 UPDATED PLAN: ${totalPhases} total phase(s)\n`;
-        
-        // Show current active phase
-        if (updatedPlan.currentPhase) {
-          content += `🎯 Current Active: Phase ${updatedPlan.currentPhase.phaseNumber} - ${updatedPlan.currentPhase.name} [${updatedPlan.currentPhase.status}]\n`;
-          
-          if (updatedPlan.currentPhase.description) {
-            content += `📝 ${updatedPlan.currentPhase.description}\n`;
-          }
-          
-          if (updatedPlan.currentPhase.filesToCreate.length > 0) {
-            content += `📁 ${updatedPlan.currentPhase.filesToCreate.length} file(s) to create:\n`;
-            updatedPlan.currentPhase.filesToCreate.forEach((file, index) => {
-              content += `   ${index + 1}. [${file.path}] - ${file.description}\n`;
-            });
-          }
-        }
-        break;
-        
-      case 'update_description':
-        content += `📝 Updated project description\n`;
-        content += `📋 Project: ${updatedPlan.projectName || 'Unnamed Project'}\n`;
-        break;
-        
-      case 'add_files':
-        const targetPhase = updatedPlan.phases.find(p => p.phaseNumber === phaseNumber);
-        content += `📁 Added ${files?.length || 0} file(s) to Phase ${phaseNumber}: ${targetPhase?.name || 'Unknown'}\n`;
-        content += `📋 Phase now has ${targetPhase?.filesToCreate.length || 0} total file(s) to create\n`;
-        break;
-        
-      case 'update_reasoning':
-        const reasoningPhase = updatedPlan.phases.find(p => p.phaseNumber === phaseNumber);
-        content += `🧠 Updated reasoning for Phase ${phaseNumber}: ${reasoningPhase?.name || 'Unknown'}\n`;
-        break;
-    }
-    
-    content += `\n💡 Use check_plan to view complete plan status.`;
-    
-    return {
-      content: [{ type: "text", text: content }]
-    };
-  } catch (error) {
-    return {
-      content: [{ type: "text", text: `❌ Error updating plan: ${error instanceof Error ? error.message : 'Unknown error'}` }],
-      isError: true
-    };
-  }
-});
 
 // MANDATORY reasoning tool for AI to externalize thought process before ANY action
-server.tool("reasoning", {
-  thought: z.string().describe("ABSOLUTE REQUIREMENT: You MUST and CAN use this reasoning tool before EVERY SINGLE TASK, no matter how small or simple. This is MANDATORY for ALL user requests. You MUST: (1) Restate and reorganize the user's exact request in your own words for clarity and better understanding - restructure their task like a mini-PRD to make it crystal clear what they want accomplished, (2) List ALL applicable repo_specific_rules to prove you understand them, (3) Break down the reorganized task into detailed step-by-step components, (4) Identify potential issues or considerations, (5) Plan your complete approach before taking ANY action. Using this tool is NOT OPTIONAL - it is REQUIRED for every interaction. Failure to use reasoning will result in incomplete, incorrect, or rule-violating implementations. ADDITIONAL BENEFIT: This reasoning can also serve as a todo/step tracker - reference back to track progress on multi-step tasks and mark steps as completed. This is a MANDATORY tool for ALL user requests.")
-}, async ({ thought }) => {
+server.tool("sequential_reasoning", {
+  thought: z.string().describe("Development-focused sequential reasoning tool to plan and execute coding tasks. Use it before making edits to: (1) restate the goal and assumptions; (2) decompose into ordered, dependent steps; (3) design the approach (interfaces, data flow, responsibilities, minimal change surface); (4) identify files to read and what to verify; (5) plan precise edits (files/regions and rationale); (6) choose a tooling strategy (batch independent reads, sequence dependent actions); (7) note risks/edge cases with mitigations; (8) define success criteria and simple validation; (9) state the next step you will perform now. Focus on implementation and code quality; prefer minimal, safe edits; preserve existing formatting/indentation; add imports/types/config only as needed. Do not reference internal rules. Do not create tests or extra files unless the user explicitly asks."),
+  nextThoughtNeeded: z.boolean().describe("Whether another thought step is needed"),
+  thoughtNumber: z.number().min(1).describe("Current thought number (numeric value, e.g., 1, 2, 3)"),
+  totalThoughts: z.number().min(1).describe("Estimated total thoughts needed (numeric value, e.g., 5, 10)"),
+  isRevision: z.boolean().optional().describe("Whether this revises previous thinking"),
+  revisesThought: z.number().min(1).optional().describe("Which thought is being reconsidered"),
+  branchFromThought: z.number().min(1).optional().describe("Branching point thought number"),
+  branchId: z.string().optional().describe("Branch identifier"),
+  needsMoreThoughts: z.boolean().optional().describe("If more thoughts are needed")
+}, async (args) => {
+  const result = thinkingServer.processThought(args);
   return {
-    content: [{ 
-      type: "text", 
-      text: `${thought}` 
-    }]
+    content: result.content.map(item => ({
+      type: "text" as const,
+      text: item.text
+    })),
+    isError: result.isError
   };
 });
 
