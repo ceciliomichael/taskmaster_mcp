@@ -85,4 +85,20 @@ export interface DocumentSearchResult {
   };
 }
 
+// TODO management types
+export interface TodoItem {
+  id: string;
+  task: string;
+  status: "pending" | "in_progress" | "completed" | "cancelled";
+  created: string;
+  updated: string;
+}
+
+export interface TodoList {
+  items: TodoItem[];
+  created: string;
+  updated: string;
+  totalItems: number;
+}
+
 

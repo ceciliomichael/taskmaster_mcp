@@ -48,5 +48,16 @@ export {
   expandSearchTerms
 } from "./search-operations.js";
 
+// TODO Operations
+export {
+  ensureTodoDirectory,
+  createTodoItem,
+  loadTodoList,
+  saveTodoList,
+  createTodoList,
+  updateTodoItems,
+  addTodoItems
+} from "./todo-operations.js";
+
 // Export the search result interface for external use
 export type { SessionMemorySearchResult } from "./search-operations.js";

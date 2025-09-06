@@ -16,7 +16,11 @@ import {
   getTimeAgo,
   searchSessionMemories,
   generateRAGResponse,
-  extractContentMetadata
+  extractContentMetadata,
+  createTodoList,
+  updateTodoItems,
+  addTodoItems,
+  loadTodoList
 } from "./utils.js";
 
 interface ThoughtData {
@@ -385,6 +389,203 @@ server.tool("save_memory", {
   }
 });
 
+// MANDATORY: Create TODO list at start of development session to track implementation tasks
+server.tool("create_todo", {
+  projectPath: z.string().describe("Absolute path to the project directory"),
+  items: z.array(z.string()).describe("REQUIRED: Create TODO list with all development tasks that need completion. Use this at the beginning of any coding session to establish clear task tracking. Break down the work into specific, actionable items.")
+}, async ({ projectPath, items }) => {
+  try {
+    if (items.length === 0) {
+      return {
+        content: [{ type: "text", text: "❌ Cannot create empty TODO list. Please provide at least one item." }],
+        isError: true
+      };
+    }
+    
+    const todoList = await createTodoList(projectPath, items);
+    
+    const nextTask = todoList.items.find(item => item.status === 'pending');
+    
+    let summary = `TODO List Created Successfully!\n\n`;
+    summary += `CREATED ${todoList.totalItems} TASKS:\n`;
+    todoList.items.forEach((item, index) => {
+      summary += `Task ${item.id}: ${item.task}\n`;
+    });
+    summary += `\n`;
+    
+    if (nextTask) {
+      summary += `CURRENT TASK:\nTask ${nextTask.id}: ${nextTask.task}\n\n`;
+    }
+    
+    const note = `The todo.md file tracks your development progress and gets updated automatically.`;
+    
+          return {
+        content: [{
+          type: "text",
+          text: summary + note
+        }]
+      };
+  } catch (error) {
+    return {
+      content: [{ type: "text", text: `❌ Error creating TODO list: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      isError: true
+    };
+  }
+});
+
+// CRITICAL: Update TODO status throughout development - mark tasks as in_progress when starting, completed when done
+server.tool("update_todo", {
+  projectPath: z.string().describe("Absolute path to the project directory"),
+  updates: z.array(z.object({
+    id: z.string().describe("ID of the TODO item to update (use incremental numbers: 1, 2, 3, etc.)"),
+    status: z.enum(["pending", "in_progress", "completed", "cancelled"]).optional().describe("ESSENTIAL: Always update status - 'in_progress' when starting work, 'completed' when task is finished. This maintains accurate development tracking."),
+    content: z.string().optional().describe("New task description if needed")
+  })).describe("MANDATORY: Update TODO items as you work. Mark tasks 'in_progress' when you start them and 'completed' when finished. This keeps development progress visible and organized.")
+}, async ({ projectPath, updates }) => {
+  try {
+    if (updates.length === 0) {
+      return {
+        content: [{ type: "text", text: "❌ No updates provided. Please specify at least one TODO item to update." }],
+        isError: true
+      };
+    }
+    
+    const todoList = await updateTodoItems(projectPath, updates);
+    
+    const completedCount = todoList.items.filter(item => item.status === "completed").length;
+    const pendingCount = todoList.items.filter(item => item.status === "pending").length;
+    const inProgressCount = todoList.items.filter(item => item.status === "in_progress").length;
+    
+    let summary = `TODO List Updated Successfully!\n\n`;
+    summary += `CURRENT STATUS:\n`;
+    summary += `- Completed: ${completedCount}\n`;
+    summary += `- In Progress: ${inProgressCount}\n`;
+    summary += `- Pending: ${pendingCount}\n\n`;
+    
+    // Group updates by action type
+    const actionGroups: Record<string, Array<{id: string, task: string}>> = {
+      'started': [],
+      'completed': [],
+      'pending': [],
+      'cancelled': [],
+      'updated': []
+    };
+    
+    updates.forEach((update) => {
+      const item = todoList.items.find(item => item.id === update.id);
+      if (item) {
+        if (update.status) {
+          const groupKey = {
+            'in_progress': 'started',
+            'completed': 'completed',
+            'pending': 'pending',
+            'cancelled': 'cancelled'
+          }[update.status] || 'other';
+          
+          if (actionGroups[groupKey]) {
+            actionGroups[groupKey].push({id: item.id, task: item.task});
+          }
+        }
+        if (update.content && update.content !== item.task) {
+          actionGroups['updated'].push({id: item.id, task: item.task});
+        }
+      }
+    });
+    
+    // Output grouped actions
+    if (actionGroups.started.length > 0) {
+      summary += `CURRENT TASK:\n`;
+      actionGroups.started.forEach(item => {
+        summary += `Task ${item.id}: ${item.task}\n`;
+      });
+      summary += `\n`;
+    }
+    
+    if (actionGroups.completed.length > 0) {
+      summary += `COMPLETED:\n`;
+      actionGroups.completed.forEach(item => {
+        summary += `Task ${item.id}: ${item.task}\n`;
+      });
+      summary += `\n`;
+    }
+    
+    if (actionGroups.pending.length > 0) {
+      summary += `MOVED BACK TO PENDING:\n`;
+      actionGroups.pending.forEach(item => {
+        summary += `Task ${item.id}: ${item.task}\n`;
+      });
+      summary += `\n`;
+    }
+    
+    if (actionGroups.cancelled.length > 0) {
+      summary += `CANCELLED:\n`;
+      actionGroups.cancelled.forEach(item => {
+        summary += `Task ${item.id}: ${item.task}\n`;
+      });
+      summary += `\n`;
+    }
+    
+    if (actionGroups.updated.length > 0) {
+      summary += `DESCRIPTION UPDATED:\n`;
+      actionGroups.updated.forEach(item => {
+        summary += `Task ${item.id}: ${item.task}\n`;
+      });
+      summary += `\n`;
+    }
+    
+    const nextTask = todoList.items.find(item => item.status === 'pending');
+    if (nextTask) {
+      summary += `\nNEXT TASK: ${nextTask.task}`;
+    }
+    
+    return {
+      content: [{
+        type: "text",
+        text: summary
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{ type: "text", text: `❌ Error updating TODO list: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      isError: true
+    };
+  }
+});
+
+// Add new items to existing TODO list
+server.tool("add_todo_items", {
+  projectPath: z.string().describe("Absolute path to the project directory"),
+  items: z.array(z.string()).describe("Array of new TODO item descriptions to add")
+}, async ({ projectPath, items }) => {
+  try {
+    if (items.length === 0) {
+      return {
+        content: [{ type: "text", text: "❌ No items provided. Please specify at least one TODO item to add." }],
+        isError: true
+      };
+    }
+    
+    const todoList = await addTodoItems(projectPath, items);
+    
+    const summary = `TODO Items Added Successfully!\n\n`;
+    const details = `Added ${items.length} new items:\n${items.map((item, index) => `${index + 1}. ${item}`).join('\n')}\n\n`;
+    const totals = `Total TODO items: ${todoList.totalItems}\n`;
+    const nextTask = todoList.items.find(item => item.status === 'pending');
+    const nextInfo = nextTask ? `Next task: ${nextTask.task}` : 'No pending tasks';
+    
+    return {
+      content: [{
+        type: "text",
+        text: summary + details + totals + nextInfo
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{ type: "text", text: `❌ Error adding TODO items: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+      isError: true
+    };
+  }
+});
 
 
 // MANDATORY reasoning tool for AI to externalize thought process before ANY action
