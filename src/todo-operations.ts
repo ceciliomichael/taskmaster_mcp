@@ -21,12 +21,12 @@ export async function ensureTodoDirectory(projectPath: string): Promise<string> 
 }
 
 /**
- * Create a new TODO item with incremental ID
+ * Create a new TODO item with incremental step number
  */
-export function createTodoItem(task: string, id: string): TodoItem {
+export function createTodoItem(task: string, step: string): TodoItem {
   const now = new Date().toISOString();
   return {
-    id,
+    step,
     task,
     status: "pending",
     created: now,
@@ -89,18 +89,18 @@ function parseTodoMarkdown(content: string): TodoList {
         const isCompleted = todoMatch[1].toLowerCase() === 'x';
         const content = todoMatch[2].trim();
         
-        // Extract ID from content if present (format: "task <!-- id: 1 -->")
-        const idMatch = content.match(/(.+?)\s*<!--\s*id:\s*(\d+)\s*-->$/);
+        // Extract step from content if present (format: "task <!-- step: 1 -->")
+        const stepMatch = content.match(/(.+?)\s*<!--\s*step:\s*(\d+)\s*-->$/);
         let todoTask = content;
-        let todoId = (items.length + 1).toString(); // Default incremental ID
+        let todoStep = (items.length + 1).toString(); // Default incremental step
         
-        if (idMatch) {
-          todoTask = idMatch[1].trim();
-          todoId = idMatch[2];
+        if (stepMatch) {
+          todoTask = stepMatch[1].trim();
+          todoStep = stepMatch[2];
         }
         
         items.push({
-          id: todoId,
+          step: todoStep,
           task: todoTask,
           status: isCompleted ? "completed" : "pending",
           created: created, // Use file creation time as default
@@ -147,24 +147,24 @@ function formatTodoAsMarkdown(todoList: TodoList): string {
   const completedItems = todoList.items.filter(item => item.status === "completed");
   const cancelledItems = todoList.items.filter(item => item.status === "cancelled");
   
-  // Add pending items
+    // Add pending items
   if (pendingItems.length > 0) {
     lines.push("## Pending");
     lines.push("");
     for (const item of pendingItems) {
-      lines.push(`- [ ] ${item.task} <!-- id: ${item.id} -->`);
+      lines.push(`- [ ] ${item.task} <!-- step: ${item.step} -->`);
     }
     lines.push("");
   }
-  
 
+ 
   
   // Add completed items
   if (completedItems.length > 0) {
     lines.push("## Completed");
     lines.push("");
     for (const item of completedItems) {
-      lines.push(`- [x] ${item.task} <!-- id: ${item.id} -->`);
+      lines.push(`- [x] ${item.task} <!-- step: ${item.step} -->`);
     }
     lines.push("");
   }
@@ -174,7 +174,7 @@ function formatTodoAsMarkdown(todoList: TodoList): string {
     lines.push("## Cancelled");
     lines.push("");
     for (const item of cancelledItems) {
-      lines.push(`- [x] ~~${item.task}~~ <!-- id: ${item.id} -->`);
+      lines.push(`- [x] ~~${item.task}~~ <!-- step: ${item.step} -->`);
     }
     lines.push("");
   }
@@ -209,7 +209,7 @@ export async function createTodoList(projectPath: string, items: string[]): Prom
  */
 export async function updateTodoItems(
   projectPath: string, 
-  updates: Array<{ id: string; status?: TodoItem['status']; content?: string }>
+  updates: Array<{ step: string; status?: TodoItem['status']; content?: string }>
 ): Promise<TodoList> {
   let todoList = await loadTodoList(projectPath);
   
@@ -221,7 +221,7 @@ export async function updateTodoItems(
   
   // Apply updates
   for (const update of updates) {
-    const item = todoList.items.find(item => item.id === update.id);
+    const item = todoList.items.find(item => item.step === update.step);
     if (item) {
       if (update.status !== undefined) {
         item.status = update.status;
@@ -250,8 +250,8 @@ export async function addTodoItems(projectPath: string, newItems: string[]): Pro
   }
   
   const now = new Date().toISOString();
-  const currentMaxId = Math.max(0, ...todoList.items.map(item => parseInt(item.id) || 0));
-  const todoItems = newItems.map((task, index) => createTodoItem(task, (currentMaxId + index + 1).toString()));
+  const currentMaxStep = Math.max(0, ...todoList.items.map(item => parseInt(item.step) || 0));
+  const todoItems = newItems.map((task, index) => createTodoItem(task, (currentMaxStep + index + 1).toString()));
   
   todoList.items.push(...todoItems);
   todoList.totalItems = todoList.items.length;

@@ -389,10 +389,10 @@ server.tool("save_memory", {
   }
 });
 
-// MANDATORY: Create TODO list at start of development session to track implementation tasks
+// MANDATORY: Create TODO list IMMEDIATELY at start of EVERY development session - NO EXCEPTIONS
 server.tool("create_todo", {
-  projectPath: z.string().describe("Absolute path to the project directory"),
-  items: z.array(z.string()).describe("REQUIRED: Create TODO list with all development tasks that need completion. Use this at the beginning of any coding session to establish clear task tracking. Break down the work into specific, actionable items.")
+  projectPath: z.string().describe("Absolute path to the project directory - ALWAYS use the current workspace path"),
+  items: z.array(z.string()).describe("CRITICAL: You MUST create a TODO list with ALL development tasks before starting ANY code work. Break down EVERY piece of work into specific, actionable steps. NEVER skip this step. Each item should be a single, clear action that can be completed and marked done. Example: ['Set up project structure', 'Install dependencies', 'Create main component', 'Add styling', 'Write tests']. MINIMUM 3 items required.")
 }, async ({ projectPath, items }) => {
   try {
     if (items.length === 0) {
@@ -409,11 +409,11 @@ server.tool("create_todo", {
     let summary = `TODO List Created Successfully!\n\n`;
     summary += `CREATED ${todoList.totalItems} TASKS:\n`;
     todoList.items.forEach((item, index) => {
-      summary += `Task ${item.id}: ${item.task}\n`;
+      summary += `Step ${item.step}: ${item.task}\n`;
     });
     
     if (nextTask) {
-      summary += `ACTIVE TASK:\nTask ${nextTask.id}: ${nextTask.task}\n\n`;
+      summary += `ACTIVE STEP:\nStep ${nextTask.step}: ${nextTask.task}`;
     }
     
           return {
@@ -430,14 +430,14 @@ server.tool("create_todo", {
   }
 });
 
-// CRITICAL: Update TODO status throughout development - mark tasks as completed when done
+// CRITICAL: Update TODO status IMMEDIATELY after completing ANY development step - NEVER FORGET
 server.tool("update_todo", {
-  projectPath: z.string().describe("Absolute path to the project directory"),
+  projectPath: z.string().describe("Absolute path to the project directory - ALWAYS use the current workspace path"),
   updates: z.array(z.object({
-    id: z.string().describe("ID of the TODO item to update (use incremental numbers: 1, 2, 3, etc.)"),
-    status: z.enum(["pending", "completed", "cancelled"]).optional().describe("ESSENTIAL: Always update status - 'completed' when task is finished, 'cancelled' if no longer needed. This maintains accurate development tracking."),
-    content: z.string().optional().describe("New task description if needed")
-  })).describe("MANDATORY: Update TODO items as you work. Mark tasks 'completed' when finished. This keeps development progress visible and organized.")
+    step: z.string().describe("EXACT step number to update (use the incremental numbers from your TODO list: '1', '2', '3', etc.) - DO NOT guess, use the exact step number shown in your TODO list"),
+    status: z.enum(["pending", "completed", "cancelled"]).optional().describe("MANDATORY STATUS UPDATE: 'completed' when you finish ANY development step (file creation, code changes, configuration, etc.), 'cancelled' only if task is no longer needed. YOU MUST update status after EVERY development action. NO EXCEPTIONS."),
+    content: z.string().optional().describe("New task description ONLY if the original task description needs to be changed")
+  })).describe("ABSOLUTE REQUIREMENT: You MUST call this tool IMMEDIATELY after completing ANY development work. Mark steps as 'completed' the moment you finish them. This is NOT optional - it's mandatory for proper development tracking. Update EVERY step as you complete it.")
 }, async ({ projectPath, updates }) => {
   try {
     if (updates.length === 0) {
@@ -458,7 +458,7 @@ server.tool("update_todo", {
     summary += `- Pending: ${pendingCount}\n\n`;
     
     // Group updates by action type
-    const actionGroups: Record<string, Array<{id: string, task: string}>> = {
+    const actionGroups: Record<string, Array<{step: string, task: string}>> = {
       'completed': [],
       'pending': [],
       'cancelled': [],
@@ -466,7 +466,7 @@ server.tool("update_todo", {
     };
     
     updates.forEach((update) => {
-      const item = todoList.items.find(item => item.id === update.id);
+      const item = todoList.items.find(item => item.step === update.step);
       if (item) {
         if (update.status) {
           const groupKey = {
@@ -476,11 +476,11 @@ server.tool("update_todo", {
           }[update.status] || 'other';
           
           if (actionGroups[groupKey]) {
-            actionGroups[groupKey].push({id: item.id, task: item.task});
+            actionGroups[groupKey].push({step: item.step, task: item.task});
           }
         }
         if (update.content && update.content !== item.task) {
-          actionGroups['updated'].push({id: item.id, task: item.task});
+          actionGroups['updated'].push({step: item.step, task: item.task});
         }
       }
     });
@@ -488,7 +488,7 @@ server.tool("update_todo", {
     if (actionGroups.completed.length > 0) {
       summary += `COMPLETED:\n`;
       actionGroups.completed.forEach(item => {
-        summary += `Task ${item.id}: ${item.task}\n`;
+        summary += `Step ${item.step}: ${item.task}\n`;
       });
       summary += `\n`;
     }
@@ -496,7 +496,7 @@ server.tool("update_todo", {
     if (actionGroups.pending.length > 0) {
       summary += `MOVED BACK TO PENDING:\n`;
       actionGroups.pending.forEach(item => {
-        summary += `Task ${item.id}: ${item.task}\n`;
+        summary += `Step ${item.step}: ${item.task}\n`;
       });
       summary += `\n`;
     }
@@ -504,7 +504,7 @@ server.tool("update_todo", {
     if (actionGroups.cancelled.length > 0) {
       summary += `CANCELLED:\n`;
       actionGroups.cancelled.forEach(item => {
-        summary += `Task ${item.id}: ${item.task}\n`;
+        summary += `Step ${item.step}: ${item.task}\n`;
       });
       summary += `\n`;
     }
@@ -512,14 +512,14 @@ server.tool("update_todo", {
     if (actionGroups.updated.length > 0) {
       summary += `DESCRIPTION UPDATED:\n`;
       actionGroups.updated.forEach(item => {
-        summary += `Task ${item.id}: ${item.task}\n`;
+        summary += `Step ${item.step}: ${item.task}\n`;
       });
       summary += `\n`;
     }
     
     const nextTask = todoList.items.find(item => item.status === 'pending');
     if (nextTask) {
-      summary += `NEXT TASK: ${nextTask.task}`;
+      summary += `NEXT STEP: ${nextTask.task}`;
     }
     
     return {
@@ -536,10 +536,10 @@ server.tool("update_todo", {
   }
 });
 
-// Add new items to existing TODO list
+// STRICT: Add new TODO items ONLY when scope expands during development
 server.tool("add_todo_items", {
-  projectPath: z.string().describe("Absolute path to the project directory"),
-  items: z.array(z.string()).describe("Array of new TODO item descriptions to add")
+  projectPath: z.string().describe("Absolute path to the project directory - ALWAYS use the current workspace path"),
+  items: z.array(z.string()).describe("ONLY use this when you discover NEW tasks during development that weren't in the original plan. Each new item MUST be a specific, actionable step. DO NOT use this to replace create_todo - this is ONLY for adding to existing TODO lists when scope changes. Examples: ['Fix discovered bug in authentication', 'Add missing error handling', 'Update documentation for new feature'].")
 }, async ({ projectPath, items }) => {
   try {
     if (items.length === 0) {
@@ -555,7 +555,7 @@ server.tool("add_todo_items", {
     const details = `Added ${items.length} new items:\n${items.map((item, index) => `${index + 1}. ${item}`).join('\n')}\n\n`;
     const totals = `Total TODO items: ${todoList.totalItems}\n`;
     const nextTask = todoList.items.find(item => item.status === 'pending');
-    const nextInfo = nextTask ? `Next task: ${nextTask.task}` : 'No pending tasks';
+    const nextInfo = nextTask ? `NEXT STEP: ${nextTask.task}` : 'No pending tasks';
     
     return {
       content: [{

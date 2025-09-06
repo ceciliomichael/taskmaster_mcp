@@ -87,7 +87,7 @@ export interface DocumentSearchResult {
 
 // TODO management types
 export interface TodoItem {
-  id: string;
+  step: string;
   task: string;
   status: "pending" | "completed" | "cancelled";
   created: string;
