@@ -414,7 +414,7 @@ server.tool("create_todo", {
     summary += `\n`;
     
     if (nextTask) {
-      summary += `CURRENT TASK:\nTask ${nextTask.id}: ${nextTask.task}\n\n`;
+      summary += `ACTIVE TASK:\nTask ${nextTask.id}: ${nextTask.task}\n\n`;
     }
     
     const note = `The todo.md file tracks your development progress and gets updated automatically.`;
@@ -494,7 +494,7 @@ server.tool("update_todo", {
     
     // Output grouped actions
     if (actionGroups.started.length > 0) {
-      summary += `CURRENT TASK:\n`;
+      summary += `ACTIVE TASK:\n`;
       actionGroups.started.forEach(item => {
         summary += `Task ${item.id}: ${item.task}\n`;
       });
