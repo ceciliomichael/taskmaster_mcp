@@ -625,7 +625,8 @@ server.tool("update_todo", {
     
     const nextTask = todoList.items.find(item => item.status === 'pending');
     if (nextTask) {
-      summary += `NEXT STEP: ${nextTask.task}\n`;
+      summary += "NEXT STEP:\n";
+      summary += "Step " + (nextTask.step || '?') + ": " + nextTask.task + "\n";
       if (nextTask.files && (nextTask.files.toCreate?.length || nextTask.files.toModify?.length)) {
         const fileInfo = [];
         if (nextTask.files.toCreate?.length) {
@@ -634,14 +635,14 @@ server.tool("update_todo", {
         if (nextTask.files.toModify?.length) {
           fileInfo.push(`Modify: ${nextTask.files.toModify.length} files`);
         }
-        summary += `Files: [${fileInfo.join(', ')}]\n`;
+        summary += `   Files: [${fileInfo.join(', ')}]\n`;
         
         // Show specific files to create/modify
         if (nextTask.files.toCreate?.length) {
-          summary += `Files to create: ${nextTask.files.toCreate.join(', ')}\n`;
+          summary += `   Files to create: ${nextTask.files.toCreate.join(', ')}\n`;
         }
         if (nextTask.files.toModify?.length) {
-          summary += `Files to modify: ${nextTask.files.toModify.join(', ')}`;
+          summary += `   Files to modify: ${nextTask.files.toModify.join(', ')}`;
         }
       }
     }
@@ -681,7 +682,8 @@ server.tool("add_todo_items", {
     const nextTask = todoList.items.find(item => item.status === 'pending');
     let nextInfo = 'No pending tasks';
     if (nextTask) {
-      nextInfo = `NEXT STEP: ${nextTask.task}\n`;
+      nextInfo = "NEXT STEP:\n";
+      nextInfo += "Step " + (nextTask.step || '?') + ": " + nextTask.task + "\n";
       if (nextTask.files && (nextTask.files.toCreate?.length || nextTask.files.toModify?.length)) {
         const fileInfo = [];
         if (nextTask.files.toCreate?.length) {
@@ -690,14 +692,14 @@ server.tool("add_todo_items", {
         if (nextTask.files.toModify?.length) {
           fileInfo.push(`Modify: ${nextTask.files.toModify.length} files`);
         }
-        nextInfo += `Files: [${fileInfo.join(', ')}]\n`;
+        nextInfo += `   Files: [${fileInfo.join(', ')}]\n`;
         
         // Show specific files to create/modify
         if (nextTask.files.toCreate?.length) {
-          nextInfo += `Files to create: ${nextTask.files.toCreate.join(', ')}\n`;
+          nextInfo += `   Files to create: ${nextTask.files.toCreate.join(', ')}\n`;
         }
         if (nextTask.files.toModify?.length) {
-          nextInfo += `Files to modify: ${nextTask.files.toModify.join(', ')}`;
+          nextInfo += `   Files to modify: ${nextTask.files.toModify.join(', ')}`;
         }
       }
     }
