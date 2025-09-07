@@ -25,8 +25,8 @@
    - Configuration changes required
    - CREATE TODOS, UPDATE TODOS, ADD TODOS, LIST TODOS
    - Any environment variables or settings that need to be set
-8. Create a TODO list for the task and use the mcp_taskmaster_create_todo to create it.
-9. Throughout the workflow, use the mcp_taskmaster_update_todo to update the TODO list for every task that is completed.
+8. MANDATORY: Create a TODO list for the task using mcp_taskmaster_create_todo - this step is REQUIRED and must not be skipped
+9. MANDATORY: Throughout the workflow, use mcp_taskmaster_update_todo to update the TODO list for each completed task - this step is REQUIRED for every single task completion
 </workflow_steps>
 
 <design_rules>
@@ -78,45 +78,6 @@ MANDATORY: After ANY development task, use save_memory to store a comprehensive 
 </save_memory>
 
 </after_development>
-
-<current_profile>
-NEXTJS ONLY DEVELOPMENT
-</current_profile>
-
-<nextjs_rules description="This is the nextjs rules that the agent must follow to implement the user's task">
-ENVIRONMENT VARIABLES:
-• Never use NEXT_PUBLIC_ prefix
-
-API INTEGRATIONS:
-• Use native fetch() or HTTP libraries for all external API calls
-• Avoid third-party SDKs unless explicitly requested by the user
-• All external API calls must go through Next.js API routes (/api endpoints)
-• Client components should never directly call external APIs - use API routes as proxies
-• Server components can call external APIs directly when appropriate
-
-IMPORT CONVENTIONS:
-• Always use @/ alias for src directory imports
-• Never use relative imports (../../../)
-
-FILE ORGANIZATION:
-• components/ui/ - reusable UI components
-• components/feature/ - business logic components
-• hooks/ - custom hooks
-• utils/ - helper functions
-• services/ - API calls
-• types/ - TypeScript definitions
-• constants/ - static values
-• Each file serves ONE purpose in its designated folder.
-
-NAMING CONVENTIONS:
-• Use kebab-case for all file and folder names
-
-COMPONENT DIRECTIVES:
-• Add "use client" for components using React hooks or browser APIs
-
-COMPONENT STRUCTURE:
-• UI components: /src/components/ui/component-name/index.tsx+component-name.module.css
-</nextjs_rules>
 
 </system_rules>
 

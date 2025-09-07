@@ -55,8 +55,11 @@ export {
   loadTodoList,
   saveTodoList,
   createTodoList,
+  createTodoListWithFiles,
   updateTodoItems,
-  addTodoItems
+  addTodoItems,
+  checkFilesExist,
+  updateFileTracking
 } from "./todo-operations.js";
 
 // Export the search result interface for external use

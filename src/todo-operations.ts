@@ -5,6 +5,52 @@ import { TodoItem, TodoList } from "./types.js";
 import { ensureProjectDirectory } from "./file-operations.js";
 
 /**
+ * Check if files exist in the project directory
+ */
+export async function checkFilesExist(projectPath: string, filePaths: string[]): Promise<{path: string, exists: boolean}[]> {
+  const results = [];
+  for (const filePath of filePaths) {
+    const fullPath = path.resolve(projectPath, filePath);
+    try {
+      await fs.access(fullPath);
+      results.push({ path: filePath, exists: true });
+    } catch {
+      results.push({ path: filePath, exists: false });
+    }
+  }
+  return results;
+}
+
+/**
+ * Update file tracking for a TODO item based on actual file existence
+ */
+export async function updateFileTracking(projectPath: string, item: TodoItem): Promise<TodoItem> {
+  if (!item.files) return item;
+  
+  const updatedItem = { ...item };
+  
+  // Check files that should be created
+  if (item.files.toCreate && item.files.toCreate.length > 0) {
+    const fileStatus = await checkFilesExist(projectPath, item.files.toCreate);
+    updatedItem.files = {
+      ...updatedItem.files,
+      created: fileStatus.filter(f => f.exists).map(f => f.path)
+    };
+  }
+  
+  // Check files that should be modified
+  if (item.files.toModify && item.files.toModify.length > 0) {
+    const fileStatus = await checkFilesExist(projectPath, item.files.toModify);
+    updatedItem.files = {
+      ...updatedItem.files,
+      modified: fileStatus.filter(f => f.exists).map(f => f.path)
+    };
+  }
+  
+  return updatedItem;
+}
+
+/**
  * Ensure the todo directory exists
  */
 export async function ensureTodoDirectory(projectPath: string): Promise<string> {
@@ -21,16 +67,22 @@ export async function ensureTodoDirectory(projectPath: string): Promise<string> 
 }
 
 /**
- * Create a new TODO item with incremental step number
+ * Create a new TODO item with incremental step number and optional file tracking
  */
-export function createTodoItem(task: string, step: string): TodoItem {
+export function createTodoItem(task: string, step: string, files?: {toCreate?: string[], toModify?: string[]}): TodoItem {
   const now = new Date().toISOString();
   return {
     step,
     task,
     status: "pending",
     created: now,
-    updated: now
+    updated: now,
+    files: files ? {
+      toCreate: files.toCreate || [],
+      toModify: files.toModify || [],
+      created: [],
+      modified: []
+    } : undefined
   };
 }
 
@@ -89,14 +141,22 @@ function parseTodoMarkdown(content: string): TodoList {
         const isCompleted = todoMatch[1].toLowerCase() === 'x';
         const content = todoMatch[2].trim();
         
-        // Extract step from content if present (format: "task <!-- step: 1 -->")
-        const stepMatch = content.match(/(.+?)\s*<!--\s*step:\s*(\d+)\s*-->$/);
+        // Extract step and files from content (format: "task <!-- step: 1 files: {...} -->")
+        const stepMatch = content.match(/(.+?)\s*<!--\s*step:\s*(\d+)(?:\s*files:\s*(.+?))?\s*-->$/);
         let todoTask = content;
         let todoStep = (items.length + 1).toString(); // Default incremental step
+        let todoFiles = undefined;
         
         if (stepMatch) {
           todoTask = stepMatch[1].trim();
           todoStep = stepMatch[2];
+          if (stepMatch[3]) {
+            try {
+              todoFiles = JSON.parse(stepMatch[3]);
+            } catch (e) {
+              // Ignore invalid JSON
+            }
+          }
         }
         
         items.push({
@@ -104,7 +164,8 @@ function parseTodoMarkdown(content: string): TodoList {
           task: todoTask,
           status: isCompleted ? "completed" : "pending",
           created: created, // Use file creation time as default
-          updated: updated  // Use file update time as default
+          updated: updated,  // Use file update time as default
+          files: todoFiles
         });
       }
     }
@@ -152,7 +213,12 @@ function formatTodoAsMarkdown(todoList: TodoList): string {
     lines.push("## Pending");
     lines.push("");
     for (const item of pendingItems) {
-      lines.push(`- [ ] ${item.task} <!-- step: ${item.step} -->`);
+      let line = `- [ ] ${item.task} <!-- step: ${item.step}`;
+      if (item.files) {
+        line += ` files: ${JSON.stringify(item.files)}`;
+      }
+      line += ` -->`;
+      lines.push(line);
     }
     lines.push("");
   }
@@ -164,7 +230,12 @@ function formatTodoAsMarkdown(todoList: TodoList): string {
     lines.push("## Completed");
     lines.push("");
     for (const item of completedItems) {
-      lines.push(`- [x] ${item.task} <!-- step: ${item.step} -->`);
+      let line = `- [x] ${item.task} <!-- step: ${item.step}`;
+      if (item.files) {
+        line += ` files: ${JSON.stringify(item.files)}`;
+      }
+      line += ` -->`;
+      lines.push(line);
     }
     lines.push("");
   }
@@ -174,7 +245,12 @@ function formatTodoAsMarkdown(todoList: TodoList): string {
     lines.push("## Cancelled");
     lines.push("");
     for (const item of cancelledItems) {
-      lines.push(`- [x] ~~${item.task}~~ <!-- step: ${item.step} -->`);
+      let line = `- [x] ~~${item.task}~~ <!-- step: ${item.step}`;
+      if (item.files) {
+        line += ` files: ${JSON.stringify(item.files)}`;
+      }
+      line += ` -->`;
+      lines.push(line);
     }
     lines.push("");
   }
@@ -205,7 +281,30 @@ export async function createTodoList(projectPath: string, items: string[]): Prom
 }
 
 /**
- * Update todo items in the list
+ * Create a new todo list with items and file tracking
+ */
+export async function createTodoListWithFiles(
+  projectPath: string, 
+  items: Array<{task: string, files?: {toCreate?: string[], toModify?: string[]}}>
+): Promise<TodoList> {
+  const now = new Date().toISOString();
+  const todoItems = items.map((item, index) => 
+    createTodoItem(item.task, (index + 1).toString(), item.files)
+  );
+  
+  const todoList: TodoList = {
+    items: todoItems,
+    created: now,
+    updated: now,
+    totalItems: todoItems.length
+  };
+  
+  await saveTodoList(projectPath, todoList);
+  return todoList;
+}
+
+/**
+ * Update todo items in the list with file tracking verification
  */
 export async function updateTodoItems(
   projectPath: string, 
@@ -219,10 +318,14 @@ export async function updateTodoItems(
   
   const now = new Date().toISOString();
   
-  // Apply updates
+  // Apply updates with file tracking verification
   for (const update of updates) {
     const item = todoList.items.find(item => item.step === update.step);
     if (item) {
+      // Update file tracking before status change
+      const updatedItem = await updateFileTracking(projectPath, item);
+      Object.assign(item, updatedItem);
+      
       if (update.status !== undefined) {
         item.status = update.status;
       }

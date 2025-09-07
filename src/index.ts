@@ -18,9 +18,11 @@ import {
   generateRAGResponse,
   extractContentMetadata,
   createTodoList,
+  createTodoListWithFiles,
   updateTodoItems,
   addTodoItems,
-  loadTodoList
+  loadTodoList,
+  checkFilesExist
 } from "./utils.js";
 
 interface ThoughtData {
@@ -392,7 +394,11 @@ server.tool("save_memory", {
 // MANDATORY: Create TODO list IMMEDIATELY at start of EVERY development session - NO EXCEPTIONS
 server.tool("create_todo", {
   projectPath: z.string().describe("Absolute path to the project directory - ALWAYS use the current workspace path"),
-  items: z.array(z.string()).describe("CRITICAL: You MUST create a TODO list with ALL development tasks before starting ANY code work. Break down EVERY piece of work into specific, actionable steps. NEVER skip this step. Each item should be a single, clear action that can be completed and marked done. Example: ['Set up project structure', 'Install dependencies', 'Create main component', 'Add styling', 'Write tests']. MINIMUM 3 items required.")
+  items: z.array(z.object({
+    task: z.string().describe("CRITICAL: Clear, actionable task description. Each item should be a single, specific action that can be completed and marked done."),
+    filesToCreate: z.array(z.string()).optional().describe("ESSENTIAL: Relative paths of files that MUST be created for this step (e.g., ['src/components/Button.tsx', 'src/styles/button.css']). The AI will be tracked on whether these files actually exist."),
+    filesToModify: z.array(z.string()).optional().describe("ESSENTIAL: Relative paths of files that MUST be modified for this step (e.g., ['src/index.ts', 'package.json']). The AI will be tracked on whether these files were actually modified.")
+  })).describe("CRITICAL: You MUST create a TODO list with ALL development tasks before starting ANY code work. Break down EVERY piece of work into specific, actionable steps with EXACT file paths that need to be created/modified. NEVER skip this step. MINIMUM 3 items required. The system will track whether you actually create the specified files.")
 }, async ({ projectPath, items }) => {
   try {
     if (items.length === 0) {
@@ -402,18 +408,63 @@ server.tool("create_todo", {
       };
     }
     
-    const todoList = await createTodoList(projectPath, items);
+    // Transform items to include file tracking
+    const taskItems = items.map(item => ({
+      task: item.task,
+      files: {
+        toCreate: item.filesToCreate || [],
+        toModify: item.filesToModify || []
+      }
+    }));
+    
+    const todoList = await createTodoListWithFiles(projectPath, taskItems);
     
     const nextTask = todoList.items.find(item => item.status === 'pending');
     
     let summary = `TODO List Created Successfully!\n\n`;
-    summary += `CREATED ${todoList.totalItems} TASKS:\n`;
+    summary += `CREATED ${todoList.totalItems} STEPS:\n`;
     todoList.items.forEach((item, index) => {
       summary += `Step ${item.step}: ${item.task}\n`;
+      if (item.files && (item.files.toCreate?.length || item.files.toModify?.length)) {
+        const fileInfo = [];
+        if (item.files.toCreate?.length) {
+          fileInfo.push(`Create: ${item.files.toCreate.length} files`);
+        }
+        if (item.files.toModify?.length) {
+          fileInfo.push(`Modify: ${item.files.toModify.length} files`);
+        }
+        summary += `   Files: [${fileInfo.join(', ')}]\n`;
+        
+        // Show specific files to create/modify
+        if (item.files.toCreate?.length) {
+          summary += `   Files to create: ${item.files.toCreate.join(', ')}\n`;
+        }
+        if (item.files.toModify?.length) {
+          summary += `   Files to modify: ${item.files.toModify.join(', ')}\n`;
+        }
+      }
     });
     
     if (nextTask) {
-      summary += `ACTIVE STEP:\nStep ${nextTask.step}: ${nextTask.task}`;
+      summary += `\nACTIVE STEP:\nStep ${nextTask.step}: ${nextTask.task}\n`;
+      if (nextTask.files && (nextTask.files.toCreate?.length || nextTask.files.toModify?.length)) {
+        const fileInfo = [];
+        if (nextTask.files.toCreate?.length) {
+          fileInfo.push(`Create: ${nextTask.files.toCreate.length} files`);
+        }
+        if (nextTask.files.toModify?.length) {
+          fileInfo.push(`Modify: ${nextTask.files.toModify.length} files`);
+        }
+        summary += `   Files: [${fileInfo.join(', ')}]\n`;
+        
+        // Show specific files to create/modify
+        if (nextTask.files.toCreate?.length) {
+          summary += `   Files to create: ${nextTask.files.toCreate.join(', ')}\n`;
+        }
+        if (nextTask.files.toModify?.length) {
+          summary += `   Files to modify: ${nextTask.files.toModify.join(', ')}`;
+        }
+      }
     }
     
           return {
@@ -485,13 +536,68 @@ server.tool("update_todo", {
       }
     });
     
-    if (actionGroups.completed.length > 0) {
-      summary += `COMPLETED:\n`;
-      actionGroups.completed.forEach(item => {
-        summary += `Step ${item.step}: ${item.task}\n`;
-      });
-      summary += `\n`;
-    }
+          if (actionGroups.completed.length > 0) {
+        summary += `COMPLETED:\n`;
+        for (const item of actionGroups.completed) {
+          const actualItem = todoList.items.find(todo => todo.step === item.step);
+                     summary += `Step ${item.step}: ${item.task}\n`;
+           
+           // Show detailed file tracking status with missing files
+           if (actualItem?.files) {
+             const fileStatus = [];
+             let hasIssues = false;
+             const missingFiles = [];
+             
+             if (actualItem.files.toCreate?.length) {
+               const created = actualItem.files.created?.length || 0;
+               const total = actualItem.files.toCreate.length;
+               fileStatus.push(`Created: ${created}/${total} files`);
+               
+               if (created < total) {
+                 hasIssues = true;
+                 const missing = actualItem.files.toCreate.filter(file => 
+                   !actualItem.files?.created?.includes(file)
+                 );
+                 if (missing.length > 0) {
+                   missingFiles.push(`Missing files to create: ${missing.join(', ')}`);
+                 }
+               }
+             }
+             
+             if (actualItem.files.toModify?.length) {
+               const modified = actualItem.files.modified?.length || 0;
+               const total = actualItem.files.toModify.length;
+               fileStatus.push(`Modified: ${modified}/${total} files`);
+               
+               if (modified < total) {
+                 hasIssues = true;
+                 const missing = actualItem.files.toModify.filter(file => 
+                   !actualItem.files?.modified?.includes(file)
+                 );
+                 if (missing.length > 0) {
+                   missingFiles.push(`Missing files to modify: ${missing.join(', ')}`);
+                 }
+               }
+             }
+             
+             if (fileStatus.length > 0) {
+               summary += `   Files: [${fileStatus.join(', ')}]`;
+               if (hasIssues) {
+                 summary += ` - INCOMPLETE`;
+               } else {
+                 summary += ` - VERIFIED`;
+               }
+               summary += `\n`;
+             }
+             
+             // Show missing files cleanly
+             if (missingFiles.length > 0) {
+               summary += `   ${missingFiles.join('\n   ')}\n`;
+             }
+           }
+        }
+        summary += `\n`;
+      }
     
     if (actionGroups.pending.length > 0) {
       summary += `MOVED BACK TO PENDING:\n`;
@@ -519,7 +625,25 @@ server.tool("update_todo", {
     
     const nextTask = todoList.items.find(item => item.status === 'pending');
     if (nextTask) {
-      summary += `NEXT STEP: ${nextTask.task}`;
+      summary += `NEXT STEP: ${nextTask.task}\n`;
+      if (nextTask.files && (nextTask.files.toCreate?.length || nextTask.files.toModify?.length)) {
+        const fileInfo = [];
+        if (nextTask.files.toCreate?.length) {
+          fileInfo.push(`Create: ${nextTask.files.toCreate.length} files`);
+        }
+        if (nextTask.files.toModify?.length) {
+          fileInfo.push(`Modify: ${nextTask.files.toModify.length} files`);
+        }
+        summary += `Files: [${fileInfo.join(', ')}]\n`;
+        
+        // Show specific files to create/modify
+        if (nextTask.files.toCreate?.length) {
+          summary += `Files to create: ${nextTask.files.toCreate.join(', ')}\n`;
+        }
+        if (nextTask.files.toModify?.length) {
+          summary += `Files to modify: ${nextTask.files.toModify.join(', ')}`;
+        }
+      }
     }
     
     return {
@@ -555,7 +679,28 @@ server.tool("add_todo_items", {
     const details = `Added ${items.length} new items:\n${items.map((item, index) => `${index + 1}. ${item}`).join('\n')}\n\n`;
     const totals = `Total TODO items: ${todoList.totalItems}\n`;
     const nextTask = todoList.items.find(item => item.status === 'pending');
-    const nextInfo = nextTask ? `NEXT STEP: ${nextTask.task}` : 'No pending tasks';
+    let nextInfo = 'No pending tasks';
+    if (nextTask) {
+      nextInfo = `NEXT STEP: ${nextTask.task}\n`;
+      if (nextTask.files && (nextTask.files.toCreate?.length || nextTask.files.toModify?.length)) {
+        const fileInfo = [];
+        if (nextTask.files.toCreate?.length) {
+          fileInfo.push(`Create: ${nextTask.files.toCreate.length} files`);
+        }
+        if (nextTask.files.toModify?.length) {
+          fileInfo.push(`Modify: ${nextTask.files.toModify.length} files`);
+        }
+        nextInfo += `Files: [${fileInfo.join(', ')}]\n`;
+        
+        // Show specific files to create/modify
+        if (nextTask.files.toCreate?.length) {
+          nextInfo += `Files to create: ${nextTask.files.toCreate.join(', ')}\n`;
+        }
+        if (nextTask.files.toModify?.length) {
+          nextInfo += `Files to modify: ${nextTask.files.toModify.join(', ')}`;
+        }
+      }
+    }
     
     return {
       content: [{

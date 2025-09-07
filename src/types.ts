@@ -92,6 +92,12 @@ export interface TodoItem {
   status: "pending" | "completed" | "cancelled";
   created: string;
   updated: string;
+  files?: {
+    toCreate?: string[];
+    toModify?: string[];
+    created?: string[];
+    modified?: string[];
+  };
 }
 
 export interface TodoList {
