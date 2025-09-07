@@ -623,10 +623,12 @@ server.tool("update_todo", {
       summary += `\n`;
     }
     
-    const nextTask = todoList.items.find(item => item.status === 'pending');
-    if (nextTask) {
-      summary += "NEXT STEP:\n";
-      summary += "Step " + (nextTask.step || '?') + ": " + nextTask.task + "\n";
+          const nextTask = todoList.items.find(item => item.status === 'pending');
+      if (nextTask) {
+        const pendingCount = todoList.items.filter(item => item.status === 'pending').length;
+        const stepHeader = pendingCount === 1 ? "FINAL STEP:\n" : "NEXT STEP:\n";
+        summary += stepHeader;
+        summary += "Step " + (nextTask.step || '?') + ": " + nextTask.task + "\n";
       if (nextTask.files && (nextTask.files.toCreate?.length || nextTask.files.toModify?.length)) {
         const fileInfo = [];
         if (nextTask.files.toCreate?.length) {
@@ -680,10 +682,12 @@ server.tool("add_todo_items", {
     const details = `Added ${items.length} new items:\n${items.map((item, index) => `${index + 1}. ${item}`).join('\n')}\n\n`;
     const totals = `Total TODO items: ${todoList.totalItems}\n`;
     const nextTask = todoList.items.find(item => item.status === 'pending');
-    let nextInfo = 'No pending tasks';
-    if (nextTask) {
-      nextInfo = "NEXT STEP:\n";
-      nextInfo += "Step " + (nextTask.step || '?') + ": " + nextTask.task + "\n";
+          let nextInfo = 'No pending tasks';
+      if (nextTask) {
+        const pendingCount = todoList.items.filter(item => item.status === 'pending').length;
+        const stepHeader = pendingCount === 1 ? "FINAL STEP:\n" : "NEXT STEP:\n";
+        nextInfo = stepHeader;
+        nextInfo += "Step " + (nextTask.step || '?') + ": " + nextTask.task + "\n";
       if (nextTask.files && (nextTask.files.toCreate?.length || nextTask.files.toModify?.length)) {
         const fileInfo = [];
         if (nextTask.files.toCreate?.length) {
